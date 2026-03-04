@@ -5,10 +5,9 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3 \
         python3-cryptography \
-        systemctl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy .deb packages
+# Copy .deb packages (pre-built by CI or make build-deb)
 COPY dist/buncker_*_all.deb /tmp/buncker.deb
 COPY dist/buncker-fetch_*_all.deb /tmp/buncker-fetch.deb
 

@@ -67,7 +67,7 @@ SETUP_DIR=$(mktemp -d)
 SETUP_CONFIG="$SETUP_DIR/config.json"
 SETUP_STORE="$SETUP_DIR/store"
 
-SETUP_OUTPUT=$(/usr/bin/buncker setup --config "$SETUP_CONFIG" --store-path "$SETUP_STORE" 2>&1)
+SETUP_OUTPUT=$(/usr/bin/buncker --config "$SETUP_CONFIG" setup --store-path "$SETUP_STORE" 2>&1)
 SETUP_RC=$?
 
 if [ $SETUP_RC -eq 0 ]; then
@@ -98,7 +98,7 @@ check "setup creates store dir" test -d "$SETUP_STORE"
 # Feed the mnemonic from setup into buncker-fetch pair
 FETCH_CONFIG="$SETUP_DIR/fetch-config.json"
 
-PAIR_OUTPUT=$(echo "$MNEMONIC" | /usr/bin/buncker-fetch pair --config "$FETCH_CONFIG" 2>&1)
+PAIR_OUTPUT=$(echo "$MNEMONIC" | /usr/bin/buncker-fetch --config "$FETCH_CONFIG" pair 2>&1)
 PAIR_RC=$?
 
 if [ $PAIR_RC -eq 0 ]; then
