@@ -59,11 +59,18 @@
 
 **Persistence:** `config.json` (offline: `/etc/buncker/`, online: `~/.buncker/`)
 
-## Resolved Dockerfile (in-memory)
+## ResolvedImage (in-memory)
 
-**Purpose:** Result of Dockerfile analysis - not persisted
+**Purpose:** A single parsed FROM instruction - not persisted
 
 **Key Attributes:**
-- `source_path`, `build_args`, `images`: list[ResolvedImage] with `raw`, `resolved`, `registry`, `repository`, `tag`, `digest`, `platform`, `alias`, `is_internal`, `is_private`, `missing_blobs`
+- `raw`, `resolved`, `registry`, `repository`, `tag`, `digest`, `platform`, `alias`, `is_internal`, `is_private`, `line_number`
+
+## AnalysisResult (in-memory)
+
+**Purpose:** Full result of Dockerfile analysis pipeline - not persisted
+
+**Key Attributes:**
+- `source_path`, `build_args`, `images`: list[ResolvedImage], `present_blobs`: set[str], `missing_blobs`: list[dict], `total_missing_size`: int, `warnings`: list[str]
 
 ---
