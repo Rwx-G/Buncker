@@ -1,0 +1,9 @@
+schema: 1
+story: '2.1'
+story_title: 'Store Core'
+gate: PASS
+status_reason: 'All ACs verified: OCI layout init, atomic import with SHA256, has/get blob, list_missing, sidecar creation and update. 21 tests pass, atomic writes use os.replace (Windows-safe). Minor: fd leak on exception in _atomic_write_json is cosmetic and does not affect correctness on CPython (refcount closes it).'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-03-04T23:00:00Z'
+top_issues: []
+waiver: { active: false }
