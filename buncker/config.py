@@ -62,9 +62,9 @@ def validate_config(config: dict) -> None:
         ConfigError: If any value is invalid.
     """
     port = config.get("port")
-    if not isinstance(port, int) or port < 1 or port > 65535:
+    if not isinstance(port, int) or port < 0 or port > 65535:
         raise ConfigError(
-            f"Invalid port: {port} (must be 1-65535)",
+            f"Invalid port: {port} (must be 0-65535)",
             {"port": port},
         )
 

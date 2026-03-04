@@ -251,7 +251,7 @@ class TestSignalHandling:
 
     @pytest.mark.skipif(
         sys.platform == "win32",
-        reason="signal.pause() not available on Windows",
+        reason="SIGTERM not supported on Windows",
     )
     def test_sigterm_stops_server(self, tmp_path):
         import base64

@@ -65,9 +65,9 @@ class TestValidateConfig:
         }
         validate_config(config)  # Should not raise
 
-    def test_invalid_port_zero(self):
+    def test_invalid_port_negative(self):
         config = {
-            "port": 0,
+            "port": -1,
             "max_workers": 1,
             "store_path": "/tmp",
             "log_level": "INFO",
