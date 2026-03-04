@@ -9,15 +9,19 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
+from shared.exceptions import CryptoError
 from shared.wordlist import WORDLIST
 
-
-class CryptoError(Exception):
-    """Raised on any cryptographic operation failure."""
-
-    def __init__(self, message: str, context: dict | None = None) -> None:
-        super().__init__(message)
-        self.context = context or {}
+# Re-export CryptoError for existing imports from shared.crypto
+__all__ = [
+    "CryptoError",
+    "generate_mnemonic",
+    "derive_keys",
+    "encrypt",
+    "decrypt",
+    "sign",
+    "verify",
+]
 
 
 def generate_mnemonic() -> str:
