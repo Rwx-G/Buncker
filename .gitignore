@@ -29,3 +29,8 @@ Thumbs.db
 
 # Packaging
 *.deb
+dist/
+
+# Secrets (never commit)
+*.enc
+*.pem
