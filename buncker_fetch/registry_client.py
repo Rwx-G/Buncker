@@ -45,6 +45,7 @@ class _NoAuthRedirectHandler(urllib.request.HTTPRedirectHandler):
                 new_req.remove_header("Authorization")
         return new_req
 
+
 _CONNECT_TIMEOUT = 30
 _READ_TIMEOUT = 120
 _MAX_RETRIES = 3
