@@ -88,9 +88,7 @@ class BunckerServer:
             max_workers=self._max_workers,
         )
         self._start_time = time.time()
-        self._thread = threading.Thread(
-            target=self._server.serve_forever, daemon=True
-        )
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
         _log.info(
             "server_started",

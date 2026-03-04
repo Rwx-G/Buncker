@@ -150,9 +150,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
         """HEAD /v2/{name}/manifests/{reference}."""
         self._handle_manifest(name, reference, include_body=False)
 
-    def _handle_manifest(
-        self, name: str, reference: str, *, include_body: bool
-    ):
+    def _handle_manifest(self, name: str, reference: str, *, include_body: bool):
         """Shared manifest GET/HEAD logic."""
         if not self._validate_name(name):
             return
