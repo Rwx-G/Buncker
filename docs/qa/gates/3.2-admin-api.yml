@@ -1,0 +1,8 @@
+schema: 1
+story: '3.2'
+gate: PASS
+status_reason: 'All issues resolved: spec deviation documented, path traversal uses Path.parts check, body size limits added, concurrency and perf documented, completion notes updated.'
+reviewer: 'Quinn'
+updated: '2026-03-04T19:00:00Z'
+top_issues: []
+waiver: { active: false }
