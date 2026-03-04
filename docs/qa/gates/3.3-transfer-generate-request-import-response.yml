@@ -1,0 +1,8 @@
+schema: 1
+story: '3.3'
+gate: PASS
+status_reason: 'All issues resolved: tarfile filter compat with Python 3.11 fallback, chunked blob SHA256 verification.'
+reviewer: 'Quinn'
+updated: '2026-03-04T19:00:00Z'
+top_issues: []
+waiver: { active: false }

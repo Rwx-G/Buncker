@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-04
+
+### Added
+
+- HTTP server (`buncker/server.py`): `BunckerServer` with `ThreadingHTTPServer` and bounded `ThreadPoolExecutor`, graceful shutdown
+- OCI Distribution API (`buncker/handler.py`): GET/HEAD for `/v2/`, manifests, blobs with 64KB streaming, correct OCI headers (`Docker-Content-Digest`, `Content-Type`, `Content-Length`)
+- Admin API (`buncker/handler.py`): POST `/admin/analyze`, `/admin/generate-manifest`, `/admin/import`; GET `/admin/status`, `/admin/gc/report`, `/admin/logs`; POST `/admin/gc/execute`
+- Transfer module (`buncker/transfer.py`): `generate_request()` produces encrypted+signed `.json.enc` files, `import_response()` decrypts, verifies HMAC, imports blobs with SHA-256 check, handles partial imports via `ERRORS.json`
+- Config module (`buncker/config.py`): `load_config()` with sensible defaults, validation, `save_config()`
+- CLI entry point (`buncker/__main__.py`): argparse with subcommands `setup`, `serve`, `analyze`, `generate-manifest`, `import`, `status`, `gc`, `rotate-keys`, `export-ca`
+- systemd unit file (`packaging/buncker/debian/buncker.service`): hardened service with `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`
+- Version single source of truth in `buncker/__init__.__version__`
+
+### Fixed
+
+- Cross-platform daemon shutdown using `threading.Event` instead of `signal.pause()` (Windows support)
+- tarfile extraction fallback for Python < 3.12 (filter="data" not available on 3.11)
+- Chunked SHA256 verification for blob import to reduce memory pressure on large blobs
+
+### Security
+
+- SHA256 integrity verification when serving blobs via OCI GET endpoint
+- Path traversal prevention in `/admin/analyze` rejects `..` path components
+- Request body size limits: 4 GiB for import, 10 MiB for JSON endpoints
+
+## [0.2.0] - 2026-03-04
+
 ### Added
 
 - Blob store (`buncker/store.py`): OCI Image Layout initialization, atomic blob import with SHA-256 verification, metadata sidecars, `has_blob`, `get_blob`, `list_missing`
@@ -41,6 +68,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Rwx-G/Buncker/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/Rwx-G/Buncker/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Rwx-G/Buncker/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/Rwx-G/Buncker/releases/tag/v0.0.1
