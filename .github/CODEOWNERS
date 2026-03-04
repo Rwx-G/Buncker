@@ -1,0 +1,8 @@
+# Default owner for everything
+* @Rwx-G
+
+# Crypto module - extra attention
+shared/crypto.py @Rwx-G
+
+# Packaging
+packaging/ @Rwx-G
