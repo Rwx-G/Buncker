@@ -3,7 +3,7 @@ Version: 0.6.1
 Section: admin
 Priority: optional
 Architecture: all
-Depends: python3 (>= 3.11), python3-cryptography (>= 41.0)
+Depends: python3 (>= 3.11), python3-cryptography (>= 38.0)
 Maintainer: Romain G. <buncker@users.noreply.github.com>
 Description: Online fetch tool for Buncker air-gapped Docker sync
  Buncker-fetch is the online companion to Buncker. It fetches Docker
