@@ -1,6 +1,6 @@
 [project]
 name = "buncker"
-version = "0.1.0"
+version = "0.5.0"
 description = "Encrypted delta sync for air-gapped Docker builds"
 license = "Apache-2.0"
 requires-python = ">=3.11"
@@ -17,3 +17,6 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "--import-mode=importlib"
+markers = [
+    "e2e: end-to-end tests (full USB cycle)",
+]
