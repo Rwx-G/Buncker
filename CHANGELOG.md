@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-03-04
+
+### Fixed
+
+- `handler.py` used hardcoded version "0.3.0" instead of `buncker.__version__`
+- Removed obsolete `test_placeholder.py` scaffolding artifact
+
+### Added
+
+- QA review and gate files for all 20 stories (Epics 1-5 now fully reviewed)
+- Dev Agent Records filled for Epic 4 stories (4.1-4.4)
+
+### Changed
+
+- Version bumped to 0.6.0 across pyproject.toml, buncker/__init__.py, buncker_fetch/__init__.py
+
 ## [0.5.0] - 2026-03-04
 
 ### Added
@@ -103,7 +119,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Rwx-G/Buncker/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Rwx-G/Buncker/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Rwx-G/Buncker/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Rwx-G/Buncker/compare/v0.2.0...v0.3.0
