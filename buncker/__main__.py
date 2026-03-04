@@ -8,6 +8,7 @@ import json
 import os
 import signal
 import sys
+import threading
 import urllib.request
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -127,13 +128,13 @@ def _cmd_setup(args: argparse.Namespace) -> None:
         print(f"Config already exists at {config_path}")
         sys.exit(1)
 
+    import base64
+
     # Generate mnemonic and salt
     mnemonic = generate_mnemonic()
     salt = os.urandom(32)
 
-    # Derive keys to compute mnemonic hash
-    import base64
-
+    # Compute mnemonic hash for config verification
     mnemonic_hash = f"sha256:{hashlib.sha256(mnemonic.encode()).hexdigest()}"
 
     # Determine store path
@@ -238,9 +239,11 @@ def _cmd_serve(args: argparse.Namespace) -> None:
     )
 
     # Handle SIGTERM/SIGINT
+    shutdown_event = threading.Event()
+
     def _shutdown(signum, frame):
         server.stop()
-        sys.exit(0)
+        shutdown_event.set()
 
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
@@ -248,8 +251,8 @@ def _cmd_serve(args: argparse.Namespace) -> None:
     server.start()
     print(f"Buncker serving on {config.get('bind')}:{config.get('port')}")
 
-    # Block until signal
-    signal.pause()
+    # Block until shutdown signal (cross-platform)
+    shutdown_event.wait()
 
 
 def _cmd_rotate_keys(args: argparse.Namespace) -> None:
@@ -259,11 +262,11 @@ def _cmd_rotate_keys(args: argparse.Namespace) -> None:
     config_path = args.config or Path("/etc/buncker/config.json")
     config = load_config(config_path)
 
+    from datetime import UTC, datetime
+
     # Save old crypto config with grace period
     old_crypto = config.get("crypto", {})
-    old_crypto["deprecated_at"] = (
-        __import__("datetime").datetime.now(tz=__import__("datetime").UTC).isoformat()
-    )
+    old_crypto["deprecated_at"] = datetime.now(tz=UTC).isoformat()
     old_crypto["grace_period_days"] = args.grace_period
 
     # Generate new mnemonic and salt

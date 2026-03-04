@@ -6,13 +6,40 @@ import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from http.server import HTTPServer
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from buncker.handler import BunckerHandler
 from buncker.store import Store
 
 _log = logging.getLogger("buncker.server")
+
+
+class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer with a bounded thread pool.
+
+    Limits concurrent request handling to ``max_workers`` threads
+    to prevent resource exhaustion under high load.
+    """
+
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        handler_class,
+        *,
+        max_workers: int = 16,
+    ) -> None:
+        super().__init__(server_address, handler_class)
+        self._pool = ThreadPoolExecutor(max_workers=max_workers)
+
+    def process_request(self, request, client_address) -> None:
+        """Submit request processing to the bounded thread pool."""
+        self._pool.submit(self.process_request_thread, request, client_address)
+
+    def server_close(self) -> None:
+        """Shut down the thread pool when closing the server."""
+        super().server_close()
+        self._pool.shutdown(wait=False)
 
 
 class BunckerServer:
@@ -41,8 +68,7 @@ class BunckerServer:
         self._port = port
         self._store = store
         self._max_workers = max_workers
-        self._pool = ThreadPoolExecutor(max_workers=max_workers)
-        self._server: HTTPServer | None = None
+        self._server: _BoundedThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
         self.crypto_keys = crypto_keys
         self.source_id = source_id
@@ -56,9 +82,15 @@ class BunckerServer:
         def handler_factory(*args, **kwargs):
             return BunckerHandler(*args, server_ref=self, **kwargs)
 
-        self._server = HTTPServer((self._bind, self._port), handler_factory)
+        self._server = _BoundedThreadingHTTPServer(
+            (self._bind, self._port),
+            handler_factory,
+            max_workers=self._max_workers,
+        )
         self._start_time = time.time()
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread = threading.Thread(
+            target=self._server.serve_forever, daemon=True
+        )
         self._thread.start()
         _log.info(
             "server_started",
@@ -69,7 +101,7 @@ class BunckerServer:
         """Shut down the server gracefully."""
         if self._server is not None:
             self._server.shutdown()
-            self._pool.shutdown(wait=False)
+            self._server.server_close()
             _log.info("server_stopped")
 
     @property
@@ -83,8 +115,3 @@ class BunckerServer:
     def store(self) -> Store:
         """Return the store instance."""
         return self._store
-
-    @property
-    def pool(self) -> ThreadPoolExecutor:
-        """Return the thread pool executor."""
-        return self._pool
