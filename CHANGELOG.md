@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-03-04
+
+### Added
+
+- Online registry client (`buncker_fetch/registry_client.py`): OCI auth discovery (Bearer token), `fetch_manifest()`, `fetch_blob()` streaming, retry with exponential backoff, HTTP 429 rate limit handling, credentials via env vars
+- Blob cache (`buncker_fetch/cache.py`): local `~/.buncker/cache/blobs/sha256/` storage with SHA256 verification, atomic writes, `cache_clean()` for old blob removal, `stats()` for cache metrics
+- Parallel fetcher (`buncker_fetch/fetcher.py`): `Fetcher` class with `ThreadPoolExecutor`, auto-skip cached blobs, SHA256 retry (3x), progress reporting (human-readable and JSON), `FetchResult` dataclass
+- Transfer module (`buncker_fetch/transfer.py`): `process_request()` decrypts and verifies HMAC on incoming `.json.enc` requests, `build_response()` builds OCI layout tar, signs with HMAC, encrypts with AES-256-GCM, includes `ERRORS.json` for failed blobs
+- Config module (`buncker_fetch/config.py`): `load_config()`/`save_config()` for `~/.buncker/config.json`, `validate_config()` checks pairing state
+- CLI entry point (`buncker_fetch/__main__.py`): argparse with subcommands `pair`, `inspect`, `fetch`, `status`, `cache clean`, `--json` flag for machine output, `--config` override
+- Version single source of truth in `buncker_fetch/__init__.__version__`
+
 ## [0.3.0] - 2026-03-04
 
 ### Added
@@ -68,7 +80,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Rwx-G/Buncker/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Rwx-G/Buncker/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Rwx-G/Buncker/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Rwx-G/Buncker/compare/v0.0.1...v0.1.0
