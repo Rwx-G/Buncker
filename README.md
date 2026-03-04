@@ -183,9 +183,9 @@ Expected output:
 
 ```json
 {
-  "status": "success",
   "imported": 12,
-  "errors": 0
+  "skipped": 0,
+  "errors": []
 }
 ```
 
