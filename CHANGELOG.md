@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-03-04
+
+### Added
+
+- Project scaffolding: `shared/`, `buncker/`, `buncker_fetch/`, `tests/`, `packaging/` directories
+- `pyproject.toml` with ruff lint/format and pytest configuration
+- GitHub Actions CI workflow (`ci.yml`) with lint and test jobs
+- `Makefile` with `lint`, `test`, and `build` targets
+- Placeholder test to verify CI pipeline end-to-end
+- Crypto module (`shared/crypto.py`): AES-256-GCM encrypt/decrypt, PBKDF2 key derivation, HMAC-SHA256 sign/verify, BIP-39 mnemonic generation
+- BIP-39 English wordlist (`shared/wordlist.py`): 2048 words embedded
+- OCI module (`shared/oci.py`): parse manifests/indexes, select platform, build OCI Image Layout, verify blob digests
+- Exception hierarchy (`shared/exceptions.py`): BunckerError base + ConfigError, CryptoError, StoreError, ResolverError, RegistryError, TransferError
+- JSON Lines logging (`shared/logging.py`): JsonFormatter, setup_logging with file + stderr handlers, get_logger helper
+
 ## [0.0.1] - 2026-03-04
 
 ### Added
@@ -18,5 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Rwx-G/Buncker/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/Rwx-G/Buncker/releases/tag/v0.0.1
