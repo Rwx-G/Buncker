@@ -113,6 +113,93 @@ check "pair creates config" test -f "$FETCH_CONFIG"
 check "pair config has salt" python3 -c "import json; c=json.load(open('$FETCH_CONFIG')); assert 'salt' in c"
 check "pair config has key check" python3 -c "import json; c=json.load(open('$FETCH_CONFIG')); assert 'derived_key_check' in c"
 
+# --- Daemon: serve + analyze workflow ---
+echo ""
+echo "[daemon]"
+
+# Start daemon in background with the mnemonic
+export BUNCKER_MNEMONIC="$MNEMONIC"
+/usr/bin/buncker --config "$SETUP_CONFIG" serve > /dev/null 2>&1 &
+DAEMON_PID=$!
+
+# Wait for daemon to be ready (up to 5 seconds)
+READY=0
+for i in $(seq 1 50); do
+    if python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/v2/')" > /dev/null 2>&1; then
+        READY=1
+        break
+    fi
+    sleep 0.1
+done
+
+if [ "$READY" -eq 1 ]; then
+    echo "  PASS  daemon starts and responds on /v2/"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  daemon starts and responds on /v2/"
+    FAIL=$((FAIL + 1))
+    kill "$DAEMON_PID" 2>/dev/null || true
+    rm -rf "$SETUP_DIR"
+    echo ""
+    echo "=== Results: $PASS passed, $FAIL failed ==="
+    exit 1
+fi
+
+# Check status endpoint
+STATUS_FILE="$SETUP_DIR/status.json"
+/usr/bin/buncker --config "$SETUP_CONFIG" status > "$STATUS_FILE" 2>&1
+STATUS_RC=$?
+
+if [ $STATUS_RC -eq 0 ]; then
+    echo "  PASS  buncker status exits 0"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  buncker status exits 0 (got $STATUS_RC)"
+    FAIL=$((FAIL + 1))
+fi
+
+check "status returns valid JSON" python3 -c "import json; json.load(open('$STATUS_FILE'))"
+check "status has version and blob_count" python3 -c "
+import json
+d = json.load(open('$STATUS_FILE'))
+assert 'version' in d, 'missing version'
+assert 'blob_count' in d, 'missing blob_count'
+"
+
+# Create a test Dockerfile and analyze it
+TEST_DOCKERFILE="$SETUP_DIR/Dockerfile"
+cat > "$TEST_DOCKERFILE" << 'DKEOF'
+FROM python:3.11-slim
+RUN pip install flask
+DKEOF
+
+ANALYZE_FILE="$SETUP_DIR/analyze.json"
+/usr/bin/buncker --config "$SETUP_CONFIG" analyze "$TEST_DOCKERFILE" > "$ANALYZE_FILE" 2>&1
+ANALYZE_RC=$?
+
+if [ $ANALYZE_RC -eq 0 ]; then
+    echo "  PASS  buncker analyze exits 0"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  buncker analyze exits 0 (got $ANALYZE_RC)"
+    FAIL=$((FAIL + 1))
+fi
+
+check "analyze returns valid JSON" python3 -c "import json; json.load(open('$ANALYZE_FILE'))"
+check "analyze has source_path" python3 -c "import json; d=json.load(open('$ANALYZE_FILE')); assert 'source_path' in d"
+check "analyze has images list" python3 -c "import json; d=json.load(open('$ANALYZE_FILE')); assert isinstance(d.get('images'), list)"
+check "analyze has missing_blobs" python3 -c "import json; d=json.load(open('$ANALYZE_FILE')); assert 'missing_blobs' in d"
+check "analyze detects python:3.11-slim" python3 -c "
+import json
+d = json.load(open('$ANALYZE_FILE'))
+imgs = [i['raw'] for i in d['images']]
+assert any('python' in i and '3.11-slim' in i for i in imgs), f'images: {imgs}'
+"
+
+# Stop daemon
+kill "$DAEMON_PID" 2>/dev/null || true
+wait "$DAEMON_PID" 2>/dev/null || true
+
 # Cleanup
 rm -rf "$SETUP_DIR"
 
