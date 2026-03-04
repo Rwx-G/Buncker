@@ -11,15 +11,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from buncker_fetch.cache import Cache
-from buncker_fetch.config import load_config, save_config, validate_config
+from buncker_fetch.config import (
+    _DEFAULT_CONFIG_PATH,
+    load_config,
+    save_config,
+    validate_config,
+)
 from buncker_fetch.fetcher import Fetcher
 from buncker_fetch.registry_client import RegistryClient, load_credentials
 from buncker_fetch.transfer import build_response, process_request
-from shared.crypto import derive_keys, encrypt
+from shared.crypto import decrypt, derive_keys, encrypt
 from shared.exceptions import BunckerError, CryptoError
 from shared.wordlist import WORDLIST
 
-_DEFAULT_CONFIG_PATH = Path.home() / ".buncker" / "config.json"
 _DEFAULT_CACHE_PATH = Path.home() / ".buncker" / "cache"
 
 
@@ -326,8 +330,6 @@ def _derive_keys_from_config(config: dict) -> tuple[bytes, bytes]:
     # Verify against derived_key_check
     check_data = base64.b64decode(config["derived_key_check"])
     try:
-        from shared.crypto import decrypt
-
         decrypt(check_data, aes_key)
     except Exception as exc:
         raise CryptoError(

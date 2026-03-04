@@ -95,12 +95,15 @@ class Cache:
 
         # Atomic write: temp + rename
         fd, tmp_path = tempfile.mkstemp(dir=self._blobs_dir)
+        closed = False
         try:
             os.write(fd, data)
             os.close(fd)
+            closed = True
             os.rename(tmp_path, blob_path)
         except Exception:
-            os.close(fd) if not os.get_inheritable(fd) else None
+            if not closed:
+                os.close(fd)
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
             raise

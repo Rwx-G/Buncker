@@ -254,52 +254,14 @@ class RegistryClient:
         path: str,
         scope: str,
     ) -> Iterator[bytes]:
-        """Stream an authenticated request with retry."""
-        req = self._build_request(path, scope)
+        """Stream an authenticated request with retry.
 
-        for attempt in range(_MAX_RETRIES):
-            try:
-                response = urllib.request.urlopen(req, timeout=_READ_TIMEOUT)
-                while True:
-                    chunk = response.read(65536)
-                    if not chunk:
-                        break
-                    yield chunk
-                return
-            except urllib.error.HTTPError as exc:
-                if exc.code == 401 and attempt == 0:
-                    self._tokens.pop(scope, None)
-                    req = self._build_request(path, scope)
-                    continue
-                if exc.code == 429:
-                    retry_after = exc.headers.get("Retry-After", "")
-                    raise RegistryError(
-                        f"Rate limited by {self.registry}. "
-                        f"Retry after {retry_after or 'unknown'}s",
-                        {"registry": self.registry, "status": 429},
-                    ) from exc
-                if exc.code >= 500 and attempt < _MAX_RETRIES - 1:
-                    wait = _BACKOFF_BASE * (3**attempt)
-                    time.sleep(wait)
-                    continue
-                raise RegistryError(
-                    f"Blob fetch failed: HTTP {exc.code}",
-                    {"url": req.full_url, "status": exc.code},
-                ) from exc
-            except urllib.error.URLError as exc:
-                if attempt < _MAX_RETRIES - 1:
-                    wait = _BACKOFF_BASE * (3**attempt)
-                    time.sleep(wait)
-                    continue
-                raise RegistryError(
-                    f"Connection failed to {self.registry}",
-                    {"url": req.full_url, "error": str(exc)},
-                ) from exc
-
-        raise RegistryError(
-            f"All {_MAX_RETRIES} attempts failed for {path}",
-            {"registry": self.registry},
-        )
+        Collects all chunks before yielding to avoid duplicate data
+        if a retry occurs after partial read.
+        """
+        data = self._request(path, scope)
+        for offset in range(0, len(data), 65536):
+            yield data[offset : offset + 65536]
 
 
 def load_credentials(config: dict, registry: str) -> dict[str, str] | None:

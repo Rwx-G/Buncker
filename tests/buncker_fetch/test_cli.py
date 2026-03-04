@@ -6,7 +6,6 @@ import base64
 import hashlib
 import json
 import os
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -187,11 +186,15 @@ class TestFetch:
             tmp_path,
         )
 
+        # Use tmp_path for cache to avoid writing to real ~/.buncker/cache
+        cache_path = tmp_path / "cache"
+
         # Mock the RegistryClient and Fetcher
         with (
             patch("builtins.input", return_value=mnemonic),
             patch("buncker_fetch.__main__.RegistryClient"),
             patch("buncker_fetch.__main__.Fetcher") as MockFetcher,
+            patch("buncker_fetch.__main__._DEFAULT_CACHE_PATH", cache_path),
         ):
             from buncker_fetch.fetcher import FetchResult
 
@@ -203,10 +206,10 @@ class TestFetch:
             )
             MockFetcher.return_value = mock_fetcher
 
-            # Also need to store the blob in cache for build_response
+            # Store the blob in the temp cache for build_response
             from buncker_fetch.cache import Cache
 
-            cache = Cache(Path.home() / ".buncker" / "cache")
+            cache = Cache(cache_path)
             cache.store_blob(digest, content)
 
             output_dir = tmp_path / "output"
