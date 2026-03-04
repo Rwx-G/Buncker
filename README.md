@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/python-%3E%3D3.11-3776AB.svg?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/platform-Debian%2FUbuntu-A81D33.svg?logo=debian&logoColor=white" alt="Platform">
   <img src="https://img.shields.io/badge/packaging-.deb-orange.svg" alt="Packaging">
-  <img src="https://img.shields.io/badge/status-in%20development-yellow.svg" alt="Status">
+  <img src="https://img.shields.io/badge/status-v0.5.0-brightgreen.svg" alt="Status">
 </p>
 
 ---
@@ -98,6 +98,31 @@ docker build -t myapp .     # works without internet
 | Online CLI | `~/.buncker/config.json` |
 | Docker clients | `/etc/docker/certs.d/docker.io/hosts.toml` |
 
+## Configuration Reference
+
+### Offline daemon (`/etc/buncker/config.json`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `source_id` | string | `""` | Unique identifier for this buncker instance |
+| `bind` | string | `"0.0.0.0"` | Listen address |
+| `port` | int | `5000` | Listen port |
+| `store_path` | string | `"/var/lib/buncker"` | OCI blob store directory |
+| `max_workers` | int | `16` | Thread pool size for HTTP server |
+| `tls` | bool | `false` | Enable HTTPS (self-signed CA) |
+| `crypto.salt` | string | - | Base64-encoded PBKDF2 salt (set by `buncker setup`) |
+| `crypto.mnemonic_hash` | string | - | SHA256 hash of mnemonic for verification |
+| `private_registries` | list | `[]` | Private registry patterns to skip |
+| `gc.inactive_days_threshold` | int | `90` | GC inactivity threshold in days |
+| `log_level` | string | `"INFO"` | Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
+
+### Online CLI (`~/.buncker/config.json`)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `salt` | string | Base64-encoded PBKDF2 salt (set by `buncker-fetch pair`) |
+| `derived_key_check` | string | Encrypted marker for mnemonic verification |
+
 ## Development
 
 ### Setup
@@ -111,9 +136,10 @@ pip install ruff pytest    # dev dependencies only
 ### Commands
 
 ```bash
-make lint    # ruff check + format verification
-make test    # run pytest suite
-make build   # placeholder (not yet implemented)
+make lint       # ruff check + format verification
+make test       # run pytest suite
+make build-deb  # build .deb packages to dist/
+make clean      # remove build artifacts
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines.

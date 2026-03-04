@@ -1,0 +1,29 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # Create buncker system user and group if they do not exist
+        if ! getent group buncker > /dev/null 2>&1; then
+            addgroup --system buncker
+        fi
+        if ! getent passwd buncker > /dev/null 2>&1; then
+            adduser --system --ingroup buncker --home /var/lib/buncker \
+                --no-create-home --shell /usr/sbin/nologin buncker
+        fi
+
+        # Create required directories
+        install -d -o buncker -g buncker -m 0750 /var/lib/buncker
+        install -d -o buncker -g buncker -m 0750 /var/log/buncker
+
+        # Ensure config directory permissions
+        chown root:buncker /etc/buncker
+        chmod 0750 /etc/buncker
+        chown root:buncker /etc/buncker/config.json
+        chmod 0640 /etc/buncker/config.json
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

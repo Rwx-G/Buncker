@@ -8,7 +8,8 @@ git clone https://github.com/Rwx-G/Buncker.git
 cd Buncker
 
 # Install dev dependencies
-sudo apt install python3 python3-cryptography python3-pytest ruff
+sudo apt install python3 python3-cryptography python3-pytest
+pip install ruff
 
 # Verify setup
 make lint
@@ -62,6 +63,11 @@ ci: add .deb build step to workflow
 - `main` - stable, release-ready
 - `feat/<name>` - new features
 - `fix/<name>` - bug fixes
+
+### Version Tags
+
+Releases are tagged with semantic versions: `v0.5.0`, `v0.6.0`, etc.
+Tags trigger the CI build-deb job, producing `.deb` artifacts uploaded to GitHub Releases.
 
 ## Workflow
 

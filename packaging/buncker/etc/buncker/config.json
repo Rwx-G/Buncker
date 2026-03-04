@@ -1,0 +1,14 @@
+{
+  "source_id": "",
+  "bind": "0.0.0.0",
+  "port": 5000,
+  "store_path": "/var/lib/buncker",
+  "max_workers": 16,
+  "tls": false,
+  "crypto": {},
+  "private_registries": [],
+  "gc": {
+    "inactive_days_threshold": 90
+  },
+  "log_level": "INFO"
+}

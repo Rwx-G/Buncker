@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-03-04
+
+### Added
+
+- .deb packaging for `buncker` and `buncker-fetch` with Debian control files, dependencies, and file mappings
+- Entry point scripts (`/usr/bin/buncker`, `/usr/bin/buncker-fetch`) with PYTHONPATH setup
+- `postinst` script for buncker: creates system user/group, data directories, sets permissions
+- Default config file `/etc/buncker/config.json` as conffile (preserved on upgrade)
+- `make build-deb` target: builds both .deb packages to `dist/` using `dpkg-deb`
+- `make clean` target: removes `dist/` build artifacts
+- CI `build-deb` job: builds .deb on Ubuntu, verifies with dpkg-deb, uploads as artifacts
+- Packaging tests (`tests/test_packaging.py`): validates .deb metadata, file contents, dependencies
+- End-to-end test suite (`tests/e2e/`): full USB cycle, key rotation, corrupt blob handling, HMAC tamper detection
+- `@pytest.mark.e2e` marker for running e2e tests separately
+- Complete documentation: README with configuration reference, CONTRIBUTING with version tags
+- `.gitignore` updates for dist/ and secrets
+
+### Changed
+
+- README status badge updated to v0.5.0
+- `make build` now points to `make build-deb`
+- Version aligned to 0.5.0 across pyproject.toml, buncker/__init__.py, buncker_fetch/__init__.py
+
 ## [0.4.0] - 2026-03-04
 
 ### Added
@@ -80,7 +103,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Rwx-G/Buncker/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Rwx-G/Buncker/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Rwx-G/Buncker/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Rwx-G/Buncker/compare/v0.1.0...v0.2.0

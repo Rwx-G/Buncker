@@ -1,0 +1,46 @@
+schema: 1
+story: '5.1'
+story_title: '.deb Packaging'
+gate: PASS
+status_reason: 'All issues resolved: version aligned to 0.5.0, CI release job added, debian/rules override_dh_auto_test added, ruff pinned.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-03-04T23:00:00Z'
+top_issues: []
+waiver: { active: false }
+
+quality_score: 95
+
+evidence:
+  tests_reviewed: 18
+  risks_identified: 0
+  trace:
+    ac_covered: [1, 2, 3, 4, 5, 7, 8]
+    ac_gaps: [6]
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: 'postinst hardening is correct: no-login shell, restricted permissions'
+  performance:
+    status: PASS
+    notes: 'N/A - build-time only'
+  reliability:
+    status: PASS
+    notes: 'Version aligned across all sources'
+  maintainability:
+    status: PASS
+    notes: 'Makefile macro avoids duplication, clean structure'
+
+recommendations:
+  immediate: []
+  future:
+    - action: 'Add pip cache to CI for faster builds'
+      refs: ['.github/workflows/ci.yml']
+
+history:
+  - at: '2026-03-04T22:00:00Z'
+    gate: CONCERNS
+    note: 'Initial review - version inconsistency, missing CI release job'
+  - at: '2026-03-04T23:00:00Z'
+    gate: PASS
+    note: 'All issues resolved'

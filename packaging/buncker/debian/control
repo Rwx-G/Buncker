@@ -1,0 +1,12 @@
+Package: buncker
+Version: 0.5.0
+Section: admin
+Priority: optional
+Architecture: all
+Depends: python3 (>= 3.11), python3-cryptography (>= 41.0)
+Maintainer: Romain G. <buncker@users.noreply.github.com>
+Description: Offline Docker registry for air-gapped environments
+ Buncker is an offline OCI-compliant registry daemon that serves
+ Docker images in air-gapped networks. It uses AES-256-GCM encrypted
+ USB transfers with BIP-39 mnemonic pairing for secure image delivery.
+Homepage: https://github.com/Rwx-G/Buncker
