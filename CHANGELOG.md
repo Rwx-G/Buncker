@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Docker-based .deb installation tests (`tests/deb-install/`): Dockerfile, verify.sh, run.sh
+- Docker-based .deb installation tests (`tests/deb-install/`): Dockerfile, verify.sh, run.sh (69 checks)
+- Live end-to-end test: fetches real `alpine:3.19` blobs from Docker Hub, imports into store
 - CI job `test-deb-install` verifies .deb packages in a Debian 12 container before release
 - README: Installation section (deb packages and from source)
 - README: Command Reference tables for `buncker` and `buncker-fetch`
@@ -22,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `python3-cryptography` dependency lowered from `>= 41.0` to `>= 38.0` (Debian 12 ships 38.0.4)
 - CRLF line endings in Makefile deb build: all text files now stripped of `\r` before packaging
+- Registry client: `Authorization` header forwarded on cross-host redirects caused HTTP 400 from CDN (AWS S3)
 - Helper script `build-in-docker.sh` for cross-platform .deb builds
 
 ### Changed
