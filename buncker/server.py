@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from http.server import HTTPServer
 from pathlib import Path
@@ -46,6 +47,8 @@ class BunckerServer:
         self.crypto_keys = crypto_keys
         self.source_id = source_id
         self.log_path = log_path
+        self._start_time: float | None = None
+        self._last_analysis = None
 
     def start(self) -> None:
         """Start the server in a background thread."""
@@ -54,6 +57,7 @@ class BunckerServer:
             return BunckerHandler(*args, server_ref=self, **kwargs)
 
         self._server = HTTPServer((self._bind, self._port), handler_factory)
+        self._start_time = time.time()
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
         _log.info(
