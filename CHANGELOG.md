@@ -21,6 +21,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config module (`buncker/config.py`): `load_config()` with sensible defaults, validation, `save_config()`
 - CLI entry point (`buncker/__main__.py`): argparse with subcommands `setup`, `serve`, `analyze`, `generate-manifest`, `import`, `status`, `gc`, `rotate-keys`, `export-ca`
 - systemd unit file (`packaging/buncker/debian/buncker.service`): hardened service with `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`
+- Version single source of truth in `buncker/__init__.__version__`
+
+### Fixed
+
+- Server now uses `ThreadingHTTPServer` with bounded `ThreadPoolExecutor` for true concurrent request handling
+- Cross-platform daemon shutdown using `threading.Event` instead of `signal.pause()` (Windows support)
+- tarfile extraction fallback for Python < 3.12 (filter="data" not available on 3.11)
+- Chunked SHA256 verification for blob import to reduce memory pressure on large blobs
+
+### Security
+
+- SHA256 integrity verification when serving blobs via OCI GET endpoint
+- Path traversal prevention in `/admin/analyze` rejects `..` path components
+- Request body size limits: 4 GiB for import, 10 MiB for JSON endpoints
 
 ## [0.1.0] - 2026-03-04
 
