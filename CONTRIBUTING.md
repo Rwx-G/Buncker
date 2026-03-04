@@ -63,6 +63,11 @@ ci: add .deb build step to workflow
 - `feat/<name>` - new features
 - `fix/<name>` - bug fixes
 
+### Version Tags
+
+Releases are tagged with semantic versions: `v0.5.0`, `v0.6.0`, etc.
+Tags trigger the CI build-deb job, producing `.deb` artifacts uploaded to GitHub Releases.
+
 ## Workflow
 
 1. Create a feature branch from `main`
