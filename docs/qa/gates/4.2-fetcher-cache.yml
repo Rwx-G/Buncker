@@ -1,0 +1,15 @@
+schema: 1
+story: '4.2'
+story_title: 'Fetcher & Cache'
+gate: PASS
+status_reason: 'All ACs met. Cache uses atomic writes with SHA256 pre-verification. Fetcher uses ThreadPoolExecutor with auto-skip, SHA256 retry (3 attempts), error collection, and dual-mode progress reporting.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-03-04T23:00:00Z'
+top_issues:
+  - id: 'note-1'
+    severity: minor
+    description: 'json imported inside _report_progress on each call in JSON mode. Should be moved to module level.'
+  - id: 'note-2'
+    severity: minor
+    description: 'FetchResult.errors uses list[dict] without a typed structure for error entries. Could be tightened in a future refactor.'
+waiver: { active: false }

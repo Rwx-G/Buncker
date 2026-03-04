@@ -1,0 +1,9 @@
+schema: 1
+story: '2.3'
+story_title: 'Manifest Cache'
+gate: PASS
+status_reason: 'All ACs verified: cache_manifest writes to correct path with _buncker extension (cached_at, source_digest), get_manifest retrieves by tag and returns None on miss, digest lookup scans rglob for matching source_digest, platform slash-to-hyphen conversion correct. 9 tests cover all scenarios.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-03-04T23:00:00Z'
+top_issues: []
+waiver: { active: false }

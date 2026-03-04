@@ -339,7 +339,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
 
         request_data = {
             "version": "1",
-            "buncker_version": "0.3.0",
+            "buncker_version": __version__,
             "generated_at": datetime.now(tz=UTC).isoformat(),
             "source_id": source_id,
             "blobs": analysis.missing_blobs,

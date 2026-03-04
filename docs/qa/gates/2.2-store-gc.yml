@@ -1,0 +1,9 @@
+schema: 1
+story: '2.2'
+story_title: 'Store GC'
+gate: PASS
+status_reason: 'All ACs verified: gc_report scans sidecars and applies blob-level last_requested cutoff, gc_execute validates against report set, deletes blob and sidecar, logs gc_candidate and gc_executed events, refuses unknown digest and missing report. 9 tests cover all required scenarios.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-03-04T23:00:00Z'
+top_issues: []
+waiver: { active: false }

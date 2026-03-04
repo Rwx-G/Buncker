@@ -1,0 +1,9 @@
+schema: 1
+story: '2.5'
+story_title: 'Resolver Pipeline'
+gate: PASS
+status_reason: 'All ACs verified: resolve_dockerfile orchestrates parse -> manifest lookup -> list_missing, AnalysisResult holds all required fields, deduplication via seen_digests set (shared blobs counted once), private registry skip with warning, latest tag warning, unresolved manifest warning, total_missing_size computed correctly. 7 pipeline tests pass using fake collaborators.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-03-04T23:00:00Z'
+top_issues: []
+waiver: { active: false }

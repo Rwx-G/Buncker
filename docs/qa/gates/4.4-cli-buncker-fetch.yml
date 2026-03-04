@@ -1,0 +1,18 @@
+schema: 1
+story: '4.4'
+story_title: 'CLI buncker-fetch'
+gate: PASS
+status_reason: 'All ACs met. CLI implements pair, inspect, fetch, status, and cache clean subcommands. Mnemonic input is interactive (not a shell arg). Config stores only encrypted marker. --json flag produces valid JSON on all commands. All error paths return exit code 1 with actionable messages.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-03-04T23:00:00Z'
+top_issues:
+  - id: 'note-1'
+    severity: minor
+    description: 'Mnemonic is re-entered and PBKDF2 re-derived on every inspect and fetch call. A session-level in-memory key cache could improve UX in a future story.'
+  - id: 'note-2'
+    severity: minor
+    description: 'cmd_fetch uses the module-level _DEFAULT_CACHE_PATH constant rather than accepting cache path via dependency injection. Makes tests rely on module-level patching.'
+  - id: 'note-3'
+    severity: minor
+    description: '__main__.py imports _DEFAULT_CONFIG_PATH (private symbol) from config.py. Acceptable within the same package; consider exporting as a public constant if reused.'
+waiver: { active: false }
