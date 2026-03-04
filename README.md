@@ -100,10 +100,20 @@ docker build -t myapp .     # works without internet
 
 ## Development
 
+### Setup
+
 ```bash
-make lint       # ruff check + format
-make test       # pytest
-make build-deb  # build .deb packages
+git clone https://github.com/Rwx-G/Buncker.git
+cd Buncker
+pip install ruff pytest    # dev dependencies only
+```
+
+### Commands
+
+```bash
+make lint    # ruff check + format verification
+make test    # run pytest suite
+make build   # placeholder (not yet implemented)
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines.

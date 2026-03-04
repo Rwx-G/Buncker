@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Project scaffolding: `shared/`, `buncker/`, `buncker_fetch/`, `tests/`, `packaging/` directories
+- `pyproject.toml` with ruff lint/format and pytest configuration
+- GitHub Actions CI workflow (`ci.yml`) with lint and test jobs
+- `Makefile` with `lint`, `test`, and `build` targets
+- Placeholder test to verify CI pipeline end-to-end
+
 ## [0.0.1] - 2026-03-04
 
 ### Added
