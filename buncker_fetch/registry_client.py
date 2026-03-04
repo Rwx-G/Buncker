@@ -9,12 +9,41 @@ import os
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Iterator
 
 from shared.exceptions import RegistryError
 
 _log = logging.getLogger("buncker.fetch.registry_client")
+
+
+class _NoAuthRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Redirect handler that strips Authorization on cross-host redirects.
+
+    Docker Hub returns 307 redirects to CDN for blob downloads.
+    The CDN rejects the Bearer token with HTTP 400, so we must
+    remove the Authorization header when the redirect target
+    differs from the original host.
+    """
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp,  # noqa: ANN001
+        code: int,
+        msg: str,
+        headers: dict,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new_req is not None:
+            # Strip auth if redirected to a different host
+            original_host = urllib.parse.urlparse(req.full_url).netloc
+            redirect_host = urllib.parse.urlparse(newurl).netloc
+            if original_host != redirect_host:
+                new_req.remove_header("Authorization")
+        return new_req
 
 _CONNECT_TIMEOUT = 30
 _READ_TIMEOUT = 120
@@ -52,6 +81,7 @@ class RegistryClient:
         self.registry = registry
         self._credentials = credentials
         self._tokens: dict[str, str] = {}
+        self._opener = urllib.request.build_opener(_NoAuthRedirectHandler)
 
     def fetch_manifest(self, repository: str, reference: str) -> dict:
         """Fetch a manifest from the registry.
@@ -196,7 +226,7 @@ class RegistryClient:
 
         for attempt in range(_MAX_RETRIES):
             try:
-                response = urllib.request.urlopen(req, timeout=_READ_TIMEOUT)
+                response = self._opener.open(req, timeout=_READ_TIMEOUT)
                 return response.read()
             except urllib.error.HTTPError as exc:
                 if exc.code == 401 and attempt == 0:
