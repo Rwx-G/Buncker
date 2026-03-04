@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-03-04
+
 ### Added
 
 - Project scaffolding: `shared/`, `buncker/`, `buncker_fetch/`, `tests/`, `packaging/` directories
@@ -31,5 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Rwx-G/Buncker/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/Rwx-G/Buncker/releases/tag/v0.0.1
