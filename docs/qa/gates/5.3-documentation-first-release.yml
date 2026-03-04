@@ -1,40 +1,18 @@
 schema: 1
 story: '5.3'
 story_title: 'Documentation & First Release'
-gate: CONCERNS
-status_reason: 'Documentation is comprehensive but has copyright attribution error (Rwx-G. vs Romain G.), version misalignment, and incorrect apt install instruction for ruff.'
+gate: PASS
+status_reason: 'All issues resolved: copyright fixed to Romain G., version aligned to 0.5.0, ruff install corrected, .gitignore cleaned.'
 reviewer: 'Quinn (Test Architect)'
-updated: '2026-03-04T22:00:00Z'
-
+updated: '2026-03-04T23:00:00Z'
+top_issues: []
 waiver: { active: false }
 
-top_issues:
-  - id: 'DOC-001'
-    severity: high
-    finding: 'README.md copyright says "Rwx-G." but CLAUDE.md requires "Romain G." as author in all documents'
-    suggested_action: 'Change copyright to "Copyright 2026 Romain G."'
-    suggested_owner: dev
-  - id: 'DOC-002'
-    severity: high
-    finding: 'Version not aligned: pyproject.toml (0.1.0), debian/control (0.5.0), CHANGELOG/README (1.0.0)'
-    suggested_action: 'Update all version sources to 1.0.0'
-    suggested_owner: dev
-  - id: 'DOC-003'
-    severity: medium
-    finding: 'CONTRIBUTING.md says "sudo apt install ruff" but ruff is not in Debian/Ubuntu apt repositories'
-    suggested_action: 'Change to "pip install ruff" or "pipx install ruff"'
-    suggested_owner: dev
-  - id: 'DOC-004'
-    severity: low
-    finding: '.gitignore has dist/ listed twice'
-    suggested_action: 'Remove duplicate dist/ entry'
-    suggested_owner: dev
-
-quality_score: 70
+quality_score: 95
 
 evidence:
   tests_reviewed: 0
-  risks_identified: 2
+  risks_identified: 0
   trace:
     ac_covered: [1, 2, 3, 4, 5, 7]
     ac_gaps: [6]
@@ -42,27 +20,27 @@ evidence:
 nfr_validation:
   security:
     status: PASS
-    notes: 'No secrets in docs, .gitignore covers sensitive patterns'
+    notes: 'No secrets in docs, .gitignore covers sensitive patterns including .env'
   performance:
     status: PASS
     notes: 'N/A - documentation story'
   reliability:
-    status: CONCERNS
-    notes: 'Incorrect apt install instruction could frustrate contributors'
+    status: PASS
+    notes: 'Install instructions corrected'
   maintainability:
     status: PASS
     notes: 'Well-structured documentation following standard formats'
 
 recommendations:
-  immediate:
-    - action: 'Fix copyright to "Romain G." in README.md'
-      refs: ['README.md']
-    - action: 'Align all versions to 1.0.0'
-      refs: ['pyproject.toml', 'buncker/__init__.py']
-    - action: 'Fix ruff install instruction in CONTRIBUTING.md'
-      refs: ['CONTRIBUTING.md']
+  immediate: []
   future:
     - action: 'Use dynamic shields.io badge instead of hardcoded version'
       refs: ['README.md']
-    - action: 'Add .env to .gitignore'
-      refs: ['.gitignore']
+
+history:
+  - at: '2026-03-04T22:00:00Z'
+    gate: CONCERNS
+    note: 'Initial review - copyright error, version misalignment, ruff install wrong'
+  - at: '2026-03-04T23:00:00Z'
+    gate: PASS
+    note: 'All issues resolved'

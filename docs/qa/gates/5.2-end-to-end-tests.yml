@@ -1,33 +1,21 @@
 schema: 1
 story: '5.2'
 story_title: 'End-to-End Tests'
-gate: CONCERNS
-status_reason: 'E2E tests are well-designed and cover all critical paths, but AC 5 is partially unmet: tests do not explicitly run in CI (no pytest -m e2e step or verification).'
+gate: PASS
+status_reason: 'All issues resolved: e2e tests run explicitly in CI, coverage enforced at 80%, test comments added.'
 reviewer: 'Quinn (Test Architect)'
-updated: '2026-03-04T22:00:00Z'
-
+updated: '2026-03-04T23:00:00Z'
+top_issues: []
 waiver: { active: false }
 
-top_issues:
-  - id: 'E2E-001'
-    severity: high
-    finding: 'E2E tests are not explicitly run in CI - no pytest step includes -m e2e or runs tests/e2e/'
-    suggested_action: 'Verify default pytest run includes e2e tests, or add explicit e2e step to CI'
-    suggested_owner: dev
-  - id: 'COV-001'
-    severity: low
-    finding: 'Coverage threshold (80%) not enforced in pyproject.toml addopts'
-    suggested_action: 'Add --cov-fail-under=80 to pytest addopts'
-    suggested_owner: dev
-
-quality_score: 80
+quality_score: 95
 
 evidence:
   tests_reviewed: 6
-  risks_identified: 1
+  risks_identified: 0
   trace:
-    ac_covered: [1, 2, 3, 4, 6]
-    ac_gaps: [5]
+    ac_covered: [1, 2, 3, 4, 5, 6]
+    ac_gaps: []
 
 nfr_validation:
   security:
@@ -44,11 +32,13 @@ nfr_validation:
     notes: 'Clean fixtures, shared conftest, well-separated test files by scenario'
 
 recommendations:
-  immediate:
-    - action: 'Ensure e2e tests run in CI - either verify they are included in default pytest run, or add explicit step'
-      refs: ['.github/workflows/ci.yml']
-  future:
-    - action: 'Add --cov-fail-under=80 to pyproject.toml addopts'
-      refs: ['pyproject.toml']
-    - action: 'Add comments on intentional test values (iterations=1000, os.urandom blob data)'
-      refs: ['tests/e2e/conftest.py']
+  immediate: []
+  future: []
+
+history:
+  - at: '2026-03-04T22:00:00Z'
+    gate: CONCERNS
+    note: 'Initial review - e2e tests not explicitly run in CI'
+  - at: '2026-03-04T23:00:00Z'
+    gate: PASS
+    note: 'All issues resolved'
