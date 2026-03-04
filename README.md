@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/python-%3E%3D3.11-3776AB.svg?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/platform-Debian%2FUbuntu-A81D33.svg?logo=debian&logoColor=white" alt="Platform">
   <img src="https://img.shields.io/badge/packaging-.deb-orange.svg" alt="Packaging">
-  <img src="https://img.shields.io/badge/status-v0.5.0-brightgreen.svg" alt="Status">
+  <img src="https://img.shields.io/badge/status-v0.6.1-brightgreen.svg" alt="Status">
 </p>
 
 ---
@@ -58,35 +58,138 @@ Nothing equivalent exists: [Hauler](https://github.com/hauler-dev/hauler) does b
 - Python >= 3.11
 - `python3-cryptography` (installed via apt, not pip)
 
+## Installation
+
+### From .deb packages (recommended)
+
+Download the latest `.deb` files from [GitHub Releases](https://github.com/Rwx-G/Buncker/releases):
+
+```bash
+# Offline machine
+sudo dpkg -i buncker_0.6.1_all.deb
+
+# Online machine
+sudo dpkg -i buncker-fetch_0.6.1_all.deb
+```
+
+If dependencies are missing, fix them with:
+
+```bash
+sudo apt-get install -f
+```
+
+### From source (development)
+
+```bash
+git clone https://github.com/Rwx-G/Buncker.git
+cd Buncker
+pip install ruff pytest cryptography   # dev dependencies
+make build-deb                         # build .deb packages to dist/
+sudo dpkg -i dist/buncker_*_all.deb
+sudo dpkg -i dist/buncker-fetch_*_all.deb
+```
+
 ## Quick Start
 
 **1. Offline machine - setup**
 
 ```bash
-sudo dpkg -i buncker.deb
-sudo buncker setup          # generates 12 mnemonic words - write them down
+sudo buncker setup
+```
+
+Expected output:
+
+```
+Buncker initialized successfully.
+
+IMPORTANT: Write down the following 12-word mnemonic.
+This is the ONLY time it will be displayed.
+You need it to start the daemon and for key recovery.
+
+  abandon ability able about above absent absorb abstract absurd abuse access accident
+
+Config: /etc/buncker/config.json
+Store:  /var/lib/buncker
+```
+
+Start the daemon:
+
+```bash
 sudo systemctl enable --now buncker
 ```
 
-**2. Analyze & generate request**
+**2. Analyze a Dockerfile and generate a transfer request**
 
 ```bash
 buncker analyze ./Dockerfile --build-arg NODE_VERSION=20
+```
+
+Expected output:
+
+```json
+{
+  "images": ["docker.io/library/node:20-bookworm-slim"],
+  "missing_blobs": 12,
+  "total_size": 48230400
+}
+```
+
+```bash
 buncker generate-manifest --output /media/usb/request.json.enc
+```
+
+Expected output:
+
+```
+Transfer request saved to /media/usb/request.json.enc
 ```
 
 **3. Online machine - fetch**
 
 ```bash
-sudo dpkg -i buncker-fetch.deb
-buncker-fetch pair           # enter the 12 mnemonic words
-buncker-fetch fetch /media/usb/request.json.enc --output /media/usb/response.tar.enc
+buncker-fetch pair
 ```
 
-**4. Back offline - import & build**
+Expected output:
+
+```
+Enter the 12-word mnemonic (space-separated):
+> abandon ability able about above absent absorb abstract absurd abuse access accident
+  status: success
+  message: Pairing successful
+```
 
 ```bash
-buncker import /media/usb/response.tar.enc
+buncker-fetch fetch /media/usb/request.json.enc --output /media/usb/
+```
+
+Expected output:
+
+```
+  status: success
+  downloaded: 12
+  skipped: 0
+  errors: 0
+  response_file: /media/usb/buncker-response.tar.enc
+```
+
+**4. Back offline - import and build**
+
+```bash
+buncker import /media/usb/buncker-response.tar.enc
+```
+
+Expected output:
+
+```json
+{
+  "imported": 12,
+  "skipped": 0,
+  "errors": []
+}
+```
+
+```bash
 docker build -t myapp .     # works without internet
 ```
 
@@ -123,19 +226,126 @@ docker build -t myapp .     # works without internet
 | `salt` | string | Base64-encoded PBKDF2 salt (set by `buncker-fetch pair`) |
 | `derived_key_check` | string | Encrypted marker for mnemonic verification |
 
-## Development
+## Command Reference
 
-### Setup
+### `buncker` (offline daemon)
+
+| Command | Description |
+|---------|-------------|
+| `buncker setup` | Initialize: generate mnemonic, create config, init store |
+| `buncker serve` | Start the HTTP daemon (reads mnemonic from `BUNCKER_MNEMONIC` env or stdin) |
+| `buncker analyze <Dockerfile>` | Analyze Dockerfile and identify missing blobs |
+| `buncker generate-manifest` | Generate an encrypted transfer request |
+| `buncker import <file.tar.enc>` | Import an encrypted transfer response |
+| `buncker status` | Show registry status (blob count, store size) |
+| `buncker gc --report` | List inactive blobs eligible for garbage collection |
+| `buncker gc --execute` | Delete reported inactive blobs |
+| `buncker rotate-keys` | Generate a new mnemonic and deprecate old keys |
+| `buncker export-ca` | Print CA certificate to stdout (TLS mode only) |
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--config <path>` | Config file path (default: `/etc/buncker/config.json`) |
+| `--build-arg KEY=VALUE` | Build argument for `analyze` (repeatable) |
+| `--inactive-days N` | GC inactivity threshold (default: 90) |
+| `--operator <name>` | Operator name for GC audit trail |
+| `--grace-period N` | Key rotation grace period in days (default: 30) |
+
+### `buncker-fetch` (online CLI)
+
+| Command | Description |
+|---------|-------------|
+| `buncker-fetch pair` | Enter 12-word mnemonic and derive encryption keys |
+| `buncker-fetch inspect <file.json.enc>` | Decrypt and display transfer request summary |
+| `buncker-fetch fetch <file.json.enc>` | Fetch missing blobs and build encrypted response |
+| `buncker-fetch status` | Display cache statistics |
+| `buncker-fetch cache clean` | Remove old cached blobs |
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Machine-readable JSON output |
+| `--config <path>` | Config file path (default: `~/.buncker/config.json`) |
+| `--output <path>` | Output directory for `fetch` response |
+| `--parallelism N` | Parallel downloads for `fetch` (default: 4) |
+| `--older-than Nd` | Cache clean threshold (default: `30d`) |
+
+## Maintenance
+
+### Key rotation
+
+Generate a new mnemonic when compromised or as periodic security practice:
+
+```bash
+sudo buncker rotate-keys --grace-period 30
+# Write down the new 12-word mnemonic
+# Restart daemon with new mnemonic
+sudo systemctl restart buncker
+# Re-pair online machine
+buncker-fetch pair
+```
+
+Old keys remain valid during the grace period for in-flight transfers.
+
+### Garbage collection
+
+Remove blobs that have not been referenced in recent transfers:
+
+```bash
+# Preview candidates
+buncker gc --report --inactive-days 90
+
+# Execute cleanup
+buncker gc --execute --operator "admin"
+```
+
+### Cache management
+
+On the online machine, manage the local blob cache:
+
+```bash
+# Check cache usage
+buncker-fetch status
+
+# Clean blobs older than 30 days
+buncker-fetch cache clean --older-than 30d
+```
+
+### Logs
+
+Buncker writes structured JSON Lines logs:
+
+```bash
+# Daemon logs
+sudo tail -f /var/log/buncker/buncker.log
+
+# Or via journalctl
+sudo journalctl -u buncker -f
+```
+
+## Troubleshooting
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| `dpkg: dependency problems` | Missing Python or cryptography | `sudo apt-get install -f` |
+| `Cannot connect to buncker daemon` | Daemon not running | `sudo systemctl start buncker` and check `journalctl -u buncker` |
+| `mnemonic does not match config` | Wrong mnemonic entered | Re-enter the correct 12 words from initial setup |
+| `Mnemonic verification failed` on fetch | Mnemonic or salt mismatch | Re-run `buncker-fetch pair` with the correct mnemonic |
+| `buncker setup` fails with "Config already exists" | Previous setup detected | Back up and remove `/etc/buncker/config.json` to re-initialize |
+| Blobs not found after import | OCI store path mismatch | Verify `store_path` in config matches daemon working directory |
+| `docker build` fails after import | Daemon not serving imported blobs | Check `buncker status` and verify daemon is running |
+| High disk usage on online machine | Blob cache growing | Run `buncker-fetch cache clean --older-than 7d` |
+
+## Development
 
 ```bash
 git clone https://github.com/Rwx-G/Buncker.git
 cd Buncker
-pip install ruff pytest    # dev dependencies only
-```
+pip install ruff pytest cryptography
 
-### Commands
-
-```bash
 make lint       # ruff check + format verification
 make test       # run pytest suite
 make build-deb  # build .deb packages to dist/

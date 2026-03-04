@@ -32,18 +32,18 @@ define build_pkg
 	@rm -rf $(STAGE)
 	@# Debian control files
 	@mkdir -p $(STAGE)/DEBIAN
-	@cp packaging/$(DEBDIR)/debian/control $(STAGE)/DEBIAN/control
+	@sed 's/\r$$//' packaging/$(DEBDIR)/debian/control > $(STAGE)/DEBIAN/control
 	@sed -i "s/^Version:.*/Version: $(VERSION)/" $(STAGE)/DEBIAN/control
 	@if [ -f packaging/$(DEBDIR)/debian/conffiles ]; then \
-		cp packaging/$(DEBDIR)/debian/conffiles $(STAGE)/DEBIAN/conffiles; \
+		sed 's/\r$$//' packaging/$(DEBDIR)/debian/conffiles > $(STAGE)/DEBIAN/conffiles; \
 	fi
 	@if [ -f packaging/$(DEBDIR)/debian/postinst ]; then \
-		cp packaging/$(DEBDIR)/debian/postinst $(STAGE)/DEBIAN/postinst; \
+		sed 's/\r$$//' packaging/$(DEBDIR)/debian/postinst > $(STAGE)/DEBIAN/postinst; \
 		chmod 0755 $(STAGE)/DEBIAN/postinst; \
 	fi
 	@# Entry point
 	@mkdir -p $(STAGE)/usr/bin
-	@cp packaging/$(DEBDIR)/usr/bin/$(PKG) $(STAGE)/usr/bin/$(PKG)
+	@sed 's/\r$$//' packaging/$(DEBDIR)/usr/bin/$(PKG) > $(STAGE)/usr/bin/$(PKG)
 	@chmod 0755 $(STAGE)/usr/bin/$(PKG)
 	@# Python package
 	@mkdir -p $(STAGE)/usr/lib/$(PKG)/$(PYPKG)
@@ -57,7 +57,7 @@ define build_pkg
 	fi
 	@if [ -f packaging/$(DEBDIR)/debian/$(PKG).service ]; then \
 		mkdir -p $(STAGE)/lib/systemd/system; \
-		cp packaging/$(DEBDIR)/debian/$(PKG).service $(STAGE)/lib/systemd/system/; \
+		sed 's/\r$$//' packaging/$(DEBDIR)/debian/$(PKG).service > $(STAGE)/lib/systemd/system/$(PKG).service; \
 	fi
 	@# Build
 	@dpkg-deb --build --root-owner-group $(STAGE) $(DIST)/$(PKG)_$(VERSION)_all.deb
