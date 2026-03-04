@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-03-04
+
+### Added
+
+- Docker-based .deb installation tests (`tests/deb-install/`): Dockerfile, verify.sh, run.sh
+- CI job `test-deb-install` verifies .deb packages in a Debian 12 container before release
+- README: Installation section (deb packages and from source)
+- README: Command Reference tables for `buncker` and `buncker-fetch`
+- README: Maintenance section (key rotation, GC, cache management, logs)
+- README: Troubleshooting table with common problems and solutions
+
+### Changed
+
+- README: Quick Start enriched with expected output after each command
+- README: status badge updated to v0.6.1
+- CI: release job now depends on both `build-deb` and `test-deb-install`
+- Version bumped to 0.6.1 across pyproject.toml, buncker, buncker_fetch, packaging
+
 ## [0.6.0] - 2026-03-04
 
 ### Fixed
@@ -119,7 +137,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/Rwx-G/Buncker/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Rwx-G/Buncker/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Rwx-G/Buncker/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Rwx-G/Buncker/compare/v0.3.0...v0.4.0
