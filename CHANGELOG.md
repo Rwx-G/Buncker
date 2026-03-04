@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README: Maintenance section (key rotation, GC, cache management, logs)
 - README: Troubleshooting table with common problems and solutions
 
+### Fixed
+
+- `python3-cryptography` dependency lowered from `>= 41.0` to `>= 38.0` (Debian 12 ships 38.0.4)
+- CRLF line endings in Makefile deb build: all text files now stripped of `\r` before packaging
+- Helper script `build-in-docker.sh` for cross-platform .deb builds
+
 ### Changed
 
 - README: Quick Start enriched with expected output after each command
