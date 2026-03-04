@@ -17,7 +17,7 @@ from buncker_fetch.cache import Cache
 from shared.crypto import derive_keys, generate_mnemonic
 
 # ---------------------------------------------------------------------------
-# Sample blob data
+# Sample blob data - random suffix ensures unique digests per test session
 # ---------------------------------------------------------------------------
 
 BLOB_A_DATA = b"layer-a-content-" + os.urandom(64)
@@ -143,6 +143,7 @@ def mnemonic():
 def crypto_keys(mnemonic):
     """Derive AES and HMAC keys from the mnemonic."""
     salt = os.urandom(32)
+    # Reduced iterations for test speed (production uses 600,000)
     aes_key, hmac_key = derive_keys(mnemonic, salt, iterations=1000)
     return aes_key, hmac_key, salt
 
