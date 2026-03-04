@@ -6,11 +6,13 @@ import hashlib
 import io
 import json
 import logging
+import sys
 import tarfile
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+from buncker import __version__
 from buncker.registry_client import ManifestCache
 from buncker.store import Store
 from shared.crypto import decrypt, encrypt, sign, verify
@@ -25,7 +27,7 @@ def generate_request(
     aes_key: bytes,
     hmac_key: bytes,
     source_id: str,
-    buncker_version: str = "0.3.0",
+    buncker_version: str = __version__,
     output_dir: Path | None = None,
 ) -> Path:
     """Generate an encrypted transfer request file.
@@ -131,7 +133,11 @@ def import_response(
 
         tar_io = io.BytesIO(tar_bytes)
         with tarfile.open(fileobj=tar_io, mode="r:*") as tar:
-            tar.extractall(path=tmp_path, filter="data")
+            # filter="data" requires Python >= 3.12
+            if sys.version_info >= (3, 12):
+                tar.extractall(path=tmp_path, filter="data")
+            else:
+                tar.extractall(path=tmp_path)
 
         # Check for ERRORS.json
         errors_file = tmp_path / "ERRORS.json"
@@ -157,9 +163,12 @@ def import_response(
                 digest_hex = blob_file.name
                 digest = f"sha256:{digest_hex}"
 
-                # Verify SHA256
-                data = blob_file.read_bytes()
-                actual = hashlib.sha256(data).hexdigest()
+                # Verify SHA256 with chunked reading
+                h = hashlib.sha256()
+                with open(blob_file, "rb") as bf:
+                    while chunk := bf.read(65536):
+                        h.update(chunk)
+                actual = h.hexdigest()
                 if actual != digest_hex:
                     _log.error(
                         "transfer_blob_corrupt",
@@ -174,7 +183,7 @@ def import_response(
                     continue
 
                 try:
-                    store.import_blob(data, digest)
+                    store.import_blob(blob_file.read_bytes(), digest)
                     imported += 1
                 except Exception as exc:
                     _log.error(

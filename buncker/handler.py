@@ -12,8 +12,12 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from buncker import __version__
 from buncker.store import Store
 from shared.exceptions import ResolverError, StoreError, TransferError
+
+_MAX_IMPORT_SIZE = 4 * 1024 * 1024 * 1024  # 4 GiB
+_MAX_JSON_BODY_SIZE = 10 * 1024 * 1024  # 10 MiB
 
 _log = logging.getLogger("buncker.handler")
 
@@ -25,6 +29,8 @@ _CHUNK_SIZE = 65536
 # OCI route patterns
 _V2_ROOT = re.compile(r"^/v2/?$")
 _MANIFEST_ROUTE = re.compile(r"^/v2/(.+)/manifests/(.+)$")
+# Blob route requires full sha256 digest in the URL; greedy (.+) for name is
+# disambiguated by the fixed /blobs/ segment and the strict digest suffix.
 _BLOB_ROUTE = re.compile(r"^/v2/(.+)/blobs/(sha256:[a-f0-9]{64})$")
 
 
@@ -138,39 +144,16 @@ class BunckerHandler(BaseHTTPRequestHandler):
 
     def _handle_manifest_get(self, name: str, reference: str):
         """GET /v2/{name}/manifests/{reference}."""
-        if not self._validate_name(name):
-            return
-        if not self._validate_reference(reference):
-            return
-
-        store = self._get_store()
-        manifest = self._lookup_manifest(store, name, reference)
-        if manifest is None:
-            self._send_oci_error(
-                404, "MANIFEST_UNKNOWN", "manifest unknown to registry"
-            )
-            return
-
-        body = json.dumps(
-            {k: v for k, v in manifest.items() if k != "_buncker"},
-            sort_keys=True,
-        ).encode()
-        digest = f"sha256:{hashlib.sha256(body).hexdigest()}"
-        media_type = manifest.get(
-            "mediaType",
-            "application/vnd.oci.image.manifest.v1+json",
-        )
-
-        self.send_response(200)
-        self.send_header("Docker-Content-Digest", digest)
-        self.send_header("Content-Type", media_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Docker-Distribution-API-Version", "registry/2.0")
-        self.end_headers()
-        self.wfile.write(body)
+        self._handle_manifest(name, reference, include_body=True)
 
     def _handle_manifest_head(self, name: str, reference: str):
         """HEAD /v2/{name}/manifests/{reference}."""
+        self._handle_manifest(name, reference, include_body=False)
+
+    def _handle_manifest(
+        self, name: str, reference: str, *, include_body: bool
+    ):
+        """Shared manifest GET/HEAD logic."""
         if not self._validate_name(name):
             return
         if not self._validate_reference(reference):
@@ -200,9 +183,11 @@ class BunckerHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Docker-Distribution-API-Version", "registry/2.0")
         self.end_headers()
+        if include_body:
+            self.wfile.write(body)
 
     def _handle_blob_get(self, name: str, digest: str):
-        """GET /v2/{name}/blobs/{digest} - stream blob."""
+        """GET /v2/{name}/blobs/{digest} - stream blob with SHA256 verification."""
         if not self._validate_name(name):
             return
         if not _DIGEST_RE.match(digest):
@@ -223,9 +208,19 @@ class BunckerHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(size))
         self.end_headers()
 
+        # Stream blob while computing SHA256 to verify integrity
+        h = hashlib.sha256()
         with open(blob_path, "rb") as f:
             while chunk := f.read(_CHUNK_SIZE):
+                h.update(chunk)
                 self.wfile.write(chunk)
+
+        actual_digest = f"sha256:{h.hexdigest()}"
+        if actual_digest != digest:
+            _log.error(
+                "blob_integrity_error",
+                extra={"expected": digest, "actual": actual_digest},
+            )
 
         try:
             store.update_metadata(digest, "pull")
@@ -269,8 +264,8 @@ class BunckerHandler(BaseHTTPRequestHandler):
             self._send_admin_error(400, "MISSING_FIELD", "dockerfile field required")
             return
 
-        # Path traversal prevention
-        if ".." in dockerfile:
+        # Path traversal prevention - reject paths with .. components
+        if ".." in Path(dockerfile).parts:
             self._send_admin_error(400, "INVALID_PATH", "path traversal not allowed")
             return
 
@@ -382,6 +377,12 @@ class BunckerHandler(BaseHTTPRequestHandler):
             self._send_admin_error(400, "EMPTY_BODY", "request body required")
             return
 
+        if content_length > _MAX_IMPORT_SIZE:
+            self._send_admin_error(
+                400, "BODY_TOO_LARGE", "request body exceeds 4 GiB limit"
+            )
+            return
+
         # Read the raw body (encrypted .tar.enc file)
         raw_data = self.rfile.read(content_length)
 
@@ -434,7 +435,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
             uptime = int(time.time() - start_time)
 
         status = {
-            "version": "0.3.0",
+            "version": __version__,
             "source_id": source_id,
             "store_path": str(store.path),
             "blob_count": blob_count,
@@ -569,7 +570,8 @@ class BunckerHandler(BaseHTTPRequestHandler):
         cache = ManifestCache(store.path)
         registry, repository = _split_name(name)
 
-        # Try common platforms
+        # Try common platforms. V1 limitation: only these platforms are checked.
+        # Multi-arch index resolution is not yet supported.
         for platform in ("linux/amd64", "linux/arm64", "linux/arm/v7"):
             manifest = cache.get_manifest(registry, repository, reference, platform)
             if manifest is not None:
@@ -612,6 +614,12 @@ class BunckerHandler(BaseHTTPRequestHandler):
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length == 0:
             self._send_admin_error(400, "EMPTY_BODY", "request body required")
+            return None
+
+        if content_length > _MAX_JSON_BODY_SIZE:
+            self._send_admin_error(
+                400, "BODY_TOO_LARGE", "request body exceeds 10 MiB limit"
+            )
             return None
 
         try:
