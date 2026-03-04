@@ -1,0 +1,54 @@
+schema: 1
+story: '5.2'
+story_title: 'End-to-End Tests'
+gate: CONCERNS
+status_reason: 'E2E tests are well-designed and cover all critical paths, but AC 5 is partially unmet: tests do not explicitly run in CI (no pytest -m e2e step or verification).'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-03-04T22:00:00Z'
+
+waiver: { active: false }
+
+top_issues:
+  - id: 'E2E-001'
+    severity: high
+    finding: 'E2E tests are not explicitly run in CI - no pytest step includes -m e2e or runs tests/e2e/'
+    suggested_action: 'Verify default pytest run includes e2e tests, or add explicit e2e step to CI'
+    suggested_owner: dev
+  - id: 'COV-001'
+    severity: low
+    finding: 'Coverage threshold (80%) not enforced in pyproject.toml addopts'
+    suggested_action: 'Add --cov-fail-under=80 to pytest addopts'
+    suggested_owner: dev
+
+quality_score: 80
+
+evidence:
+  tests_reviewed: 6
+  risks_identified: 1
+  trace:
+    ac_covered: [1, 2, 3, 4, 6]
+    ac_gaps: [5]
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: 'Tests validate HMAC tampering rejection, wrong key rejection, corrupt blob detection'
+  performance:
+    status: PASS
+    notes: 'Tests use reduced PBKDF2 iterations (1000) for speed'
+  reliability:
+    status: PASS
+    notes: 'Session-scoped mock server, isolated temp dirs, deterministic scenarios'
+  maintainability:
+    status: PASS
+    notes: 'Clean fixtures, shared conftest, well-separated test files by scenario'
+
+recommendations:
+  immediate:
+    - action: 'Ensure e2e tests run in CI - either verify they are included in default pytest run, or add explicit step'
+      refs: ['.github/workflows/ci.yml']
+  future:
+    - action: 'Add --cov-fail-under=80 to pyproject.toml addopts'
+      refs: ['pyproject.toml']
+    - action: 'Add comments on intentional test values (iterations=1000, os.urandom blob data)'
+      refs: ['tests/e2e/conftest.py']

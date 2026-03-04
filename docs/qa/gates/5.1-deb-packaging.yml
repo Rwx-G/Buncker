@@ -1,0 +1,61 @@
+schema: 1
+story: '5.1'
+story_title: '.deb Packaging'
+gate: CONCERNS
+status_reason: 'Version inconsistency across pyproject.toml (0.1.0), debian/control (0.5.0), and CHANGELOG/README (1.0.0). CI lacks release publication job despite documented workflow.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-03-04T22:00:00Z'
+
+waiver: { active: false }
+
+top_issues:
+  - id: 'VER-001'
+    severity: high
+    finding: 'Version mismatch: debian/control says 0.5.0, pyproject.toml says 0.1.0, but CHANGELOG declares 1.0.0'
+    suggested_action: 'Align all version sources to 1.0.0 before tagging release'
+    suggested_owner: dev
+  - id: 'CI-001'
+    severity: medium
+    finding: 'CI build-deb job uploads artifacts but does not create GitHub Release on v* tags'
+    suggested_action: 'Add release job with gh release create triggered by v* tags'
+    suggested_owner: dev
+  - id: 'PKG-001'
+    severity: medium
+    finding: 'debian/rules lacks override_dh_auto_test no-op - risk of test failure if dpkg-buildpackage is used'
+    suggested_action: 'Add empty override_dh_auto_test target to both rules files'
+    suggested_owner: dev
+
+quality_score: 70
+
+evidence:
+  tests_reviewed: 18
+  risks_identified: 3
+  trace:
+    ac_covered: [1, 2, 3, 4, 5, 7, 8]
+    ac_gaps: [6]
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: 'postinst hardening is correct: no-login shell, restricted permissions'
+  performance:
+    status: PASS
+    notes: 'N/A - build-time only'
+  reliability:
+    status: CONCERNS
+    notes: 'Version inconsistency could cause confusion in deployed packages'
+  maintainability:
+    status: PASS
+    notes: 'Makefile macro avoids duplication, clean structure'
+
+recommendations:
+  immediate:
+    - action: 'Align version to 1.0.0 in pyproject.toml, buncker/__init__.py, and debian/control files'
+      refs: ['pyproject.toml', 'buncker/__init__.py', 'packaging/buncker/debian/control', 'packaging/buncker-fetch/debian/control']
+    - action: 'Add GitHub Release job to CI workflow'
+      refs: ['.github/workflows/ci.yml']
+  future:
+    - action: 'Pin ruff version in CI'
+      refs: ['.github/workflows/ci.yml']
+    - action: 'Add pip cache to CI for faster builds'
+      refs: ['.github/workflows/ci.yml']
