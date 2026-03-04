@@ -1,0 +1,12 @@
+Package: buncker-fetch
+Version: 0.5.0
+Section: admin
+Priority: optional
+Architecture: all
+Depends: python3 (>= 3.11), python3-cryptography (>= 41.0)
+Maintainer: Romain G. <buncker@users.noreply.github.com>
+Description: Online fetch tool for Buncker air-gapped Docker sync
+ Buncker-fetch is the online companion to Buncker. It fetches Docker
+ images from public registries, encrypts them with AES-256-GCM, and
+ packages them for secure USB transfer to air-gapped environments.
+Homepage: https://github.com/Rwx-G/Buncker

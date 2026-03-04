@@ -1,0 +1,3 @@
+#!/bin/sh
+# Entry point for the Buncker-fetch online fetch tool.
+PYTHONPATH="/usr/lib/buncker-fetch" exec python3 -m buncker_fetch "$@"
