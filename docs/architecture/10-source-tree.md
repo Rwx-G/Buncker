@@ -36,6 +36,7 @@ buncker/
 │   ├── buncker/
 │   │   ├── test_resolver.py
 │   │   ├── test_store.py
+│   │   ├── test_registry_client.py
 │   │   ├── test_handler.py
 │   │   ├── test_transfer.py
 │   │   └── test_server_integration.py

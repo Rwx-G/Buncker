@@ -26,7 +26,7 @@ sequenceDiagram
         RES->>ST: list_missing(layer_digests)
         ST-->>RES: missing blobs list
     end
-    RES-->>D: list[ResolvedImage] with missing_blobs
+    RES-->>D: AnalysisResult (images, missing_blobs, warnings)
     D-->>OP: Analysis report
 
     OP->>D: POST /admin/generate-manifest

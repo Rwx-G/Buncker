@@ -48,13 +48,15 @@
 
 ## buncker/resolver
 
-**Responsibility:** Static Dockerfile analysis, FROM resolution.
+**Responsibility:** Static Dockerfile analysis, FROM resolution, and resolver pipeline.
 
-**Interfaces:** `parse_dockerfile()`, `parse_args()`, `resolve_from()`
+**Interfaces:** `parse_dockerfile()`, `resolve_dockerfile()`, `ResolvedImage`, `AnalysisResult`
 
 ## buncker/registry_client (offline)
 
 **Responsibility:** Reads cached manifests. NO network requests.
+
+**Interfaces:** `cache_manifest()`, `get_manifest()`
 
 ## buncker-fetch/registry_client (online)
 
