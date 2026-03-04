@@ -156,4 +156,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines
 
 ## License
 
-[Apache 2.0](LICENSE) - Copyright 2026 Rwx-G.
+[Apache 2.0](LICENSE) - Copyright 2026 Romain G.
