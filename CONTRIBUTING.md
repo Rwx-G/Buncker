@@ -8,7 +8,8 @@ git clone https://github.com/Rwx-G/Buncker.git
 cd Buncker
 
 # Install dev dependencies
-sudo apt install python3 python3-cryptography python3-pytest ruff
+sudo apt install python3 python3-cryptography python3-pytest
+pip install ruff
 
 # Verify setup
 make lint
