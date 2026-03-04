@@ -365,8 +365,47 @@ class BunckerHandler(BaseHTTPRequestHandler):
         self._server_ref._last_analysis = None
 
     def _handle_admin_import(self):
-        """POST /admin/import - Import encrypted response (stub until Story 3.3)."""
-        self._send_admin_error(501, "NOT_IMPLEMENTED", "import not yet implemented")
+        """POST /admin/import - Import encrypted transfer response."""
+        crypto_keys = getattr(self._server_ref, "crypto_keys", None)
+        if crypto_keys is None:
+            self._send_admin_error(500, "NO_CRYPTO_KEYS", "crypto keys not configured")
+            return
+
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length == 0:
+            self._send_admin_error(400, "EMPTY_BODY", "request body required")
+            return
+
+        # Read the raw body (encrypted .tar.enc file)
+        raw_data = self.rfile.read(content_length)
+
+        # Write to temp file and import
+        import tempfile
+        aes_key, hmac_key = crypto_keys
+        store = self._get_store()
+
+        with tempfile.NamedTemporaryFile(suffix=".tar.enc", delete=False) as tmp:
+            tmp.write(raw_data)
+            tmp_path = Path(tmp.name)
+
+        try:
+            from buncker.registry_client import ManifestCache
+            from buncker.transfer import import_response
+
+            result = import_response(
+                tmp_path,
+                aes_key=aes_key,
+                hmac_key=hmac_key,
+                store=store,
+                manifest_cache=ManifestCache(store.path),
+            )
+            self._send_json(200, result)
+        except TransferError as e:
+            self._send_admin_error(400, "TRANSFER_ERROR", str(e))
+        except Exception as e:
+            self._send_admin_error(500, "INTERNAL_ERROR", str(e))
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
     def _handle_admin_status(self):
         """GET /admin/status - System status."""

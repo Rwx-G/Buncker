@@ -516,9 +516,66 @@ class TestAdminGenerateManifest:
 class TestAdminImport:
     """Tests for POST /admin/import."""
 
-    def test_import_returns_501(self, base_url):
+    def test_import_no_crypto_keys(self, base_url):
         status, body, _ = _post(f"{base_url}/admin/import", {})
-        assert status == 501
+        assert status == 500
+
+    def test_import_valid_response(self, store, crypto_keys, tmp_path):
+        aes_key, hmac_key = crypto_keys
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            crypto_keys=crypto_keys,
+            source_id="test-import",
+        )
+        srv.start()
+        url = f"http://127.0.0.1:{srv.port}"
+
+        try:
+            # Build a response tar with a blob
+            import io
+            import tarfile
+            from shared.crypto import encrypt as crypto_encrypt, sign as crypto_sign
+
+            blob_content = b"import test blob"
+            blob_hex = hashlib.sha256(blob_content).hexdigest()
+
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w") as tar:
+                info = tarfile.TarInfo(name=f"blobs/sha256/{blob_hex}")
+                info.size = len(blob_content)
+                tar.addfile(info, io.BytesIO(blob_content))
+            tar_bytes = buf.getvalue()
+
+            sig = crypto_sign(tar_bytes, hmac_key)
+            signed = tar_bytes + b"\n" + sig.encode()
+            encrypted = crypto_encrypt(signed, aes_key)
+
+            # POST the encrypted response
+            req = urllib.request.Request(
+                f"{url}/admin/import",
+                data=encrypted,
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(len(encrypted)),
+                },
+                method="POST",
+            )
+            try:
+                resp = urllib.request.urlopen(req)
+                status = resp.status
+                body = resp.read()
+            except HTTPError as e:
+                status = e.code
+                body = e.read()
+
+            assert status == 200
+            data = json.loads(body)
+            assert data["imported"] == 1
+            assert store.has_blob(f"sha256:{blob_hex}")
+        finally:
+            srv.stop()
 
 
 class TestAdminGc:
