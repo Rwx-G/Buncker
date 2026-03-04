@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Manifest cache (`buncker/registry_client.py`): offline OCI manifest cache with tag and digest lookup, `_buncker` extension metadata
 - Dockerfile parser (`buncker/resolver.py`): `parse_dockerfile()` extracts FROM references with ARG substitution, `--platform`, digest, alias, Docker Hub normalization, private registry detection
 - Resolver pipeline (`buncker/resolver.py`): `resolve_dockerfile()` orchestrates parse -> manifest lookup -> `list_missing` with deduplication and warnings
+- HTTP server (`buncker/server.py`): `BunckerServer` with `ThreadingHTTPServer` and bounded `ThreadPoolExecutor`, graceful shutdown
+- OCI Distribution API (`buncker/handler.py`): GET/HEAD for `/v2/`, manifests, blobs with 64KB streaming, correct OCI headers (`Docker-Content-Digest`, `Content-Type`, `Content-Length`)
+- Admin API (`buncker/handler.py`): POST `/admin/analyze`, `/admin/generate-manifest`, `/admin/import`; GET `/admin/status`, `/admin/gc/report`, `/admin/logs`; POST `/admin/gc/execute`
+- Transfer module (`buncker/transfer.py`): `generate_request()` produces encrypted+signed `.json.enc` files, `import_response()` decrypts, verifies HMAC, imports blobs with SHA-256 check, handles partial imports via `ERRORS.json`
+- Config module (`buncker/config.py`): `load_config()` with sensible defaults, validation, `save_config()`
+- CLI entry point (`buncker/__main__.py`): argparse with subcommands `setup`, `serve`, `analyze`, `generate-manifest`, `import`, `status`, `gc`, `rotate-keys`, `export-ca`
+- systemd unit file (`packaging/buncker/debian/buncker.service`): hardened service with `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`
 
 ## [0.1.0] - 2026-03-04
 

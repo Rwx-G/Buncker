@@ -1,0 +1,21 @@
+[Unit]
+Description=Buncker - Offline Docker Registry
+After=network.target
+
+[Service]
+Type=simple
+User=buncker
+Group=buncker
+EnvironmentFile=/etc/buncker/env
+ExecStart=/usr/bin/buncker serve
+Restart=on-failure
+RestartSec=5
+WorkingDirectory=/var/lib/buncker
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/buncker /var/log/buncker
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

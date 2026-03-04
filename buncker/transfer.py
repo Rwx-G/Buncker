@@ -31,7 +31,8 @@ def generate_request(
     """Generate an encrypted transfer request file.
 
     Args:
-        missing_blobs: List of blob descriptors (registry, repository, digest, size, media_type).
+        missing_blobs: List of blob descriptors
+            (registry, repository, digest, size, media_type).
         aes_key: 32-byte AES key for encryption.
         hmac_key: 32-byte HMAC key for signing.
         source_id: Identifier for this buncker instance.
@@ -109,10 +110,12 @@ def import_response(
     # Format: tar_bytes + b"\n" + hmac_hex
     last_newline = decrypted.rfind(b"\n")
     if last_newline == -1:
-        raise TransferError("Invalid transfer response format - no HMAC signature found")
+        raise TransferError(
+            "Invalid transfer response format - no HMAC signature found"
+        )
 
     tar_bytes = decrypted[:last_newline]
-    sig = decrypted[last_newline + 1:].decode()
+    sig = decrypted[last_newline + 1 :].decode()
 
     # Verify HMAC
     if not verify(tar_bytes, hmac_key, sig):
@@ -223,7 +226,11 @@ def _cache_manifests_from_response(
                 tag = parts[-2]
                 platform_file = parts[-1].replace(".json", "").replace("-", "/")
                 manifest_cache.cache_manifest(
-                    registry, repository, tag, platform_file, manifest,
+                    registry,
+                    repository,
+                    tag,
+                    platform_file,
+                    manifest,
                 )
         except (json.JSONDecodeError, ValueError, IndexError):
             _log.warning(

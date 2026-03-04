@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from buncker.store import Store
-from shared.exceptions import BunckerError, ResolverError, StoreError
+from shared.exceptions import ResolverError, StoreError, TransferError
 
 _log = logging.getLogger("buncker.handler")
 
@@ -146,7 +146,9 @@ class BunckerHandler(BaseHTTPRequestHandler):
         store = self._get_store()
         manifest = self._lookup_manifest(store, name, reference)
         if manifest is None:
-            self._send_oci_error(404, "MANIFEST_UNKNOWN", "manifest unknown to registry")
+            self._send_oci_error(
+                404, "MANIFEST_UNKNOWN", "manifest unknown to registry"
+            )
             return
 
         body = json.dumps(
@@ -177,7 +179,9 @@ class BunckerHandler(BaseHTTPRequestHandler):
         store = self._get_store()
         manifest = self._lookup_manifest(store, name, reference)
         if manifest is None:
-            self._send_oci_error(404, "MANIFEST_UNKNOWN", "manifest unknown to registry")
+            self._send_oci_error(
+                404, "MANIFEST_UNKNOWN", "manifest unknown to registry"
+            )
             return
 
         body = json.dumps(
@@ -321,7 +325,9 @@ class BunckerHandler(BaseHTTPRequestHandler):
         """POST /admin/generate-manifest - Generate encrypted transfer request."""
         analysis = getattr(self._server_ref, "_last_analysis", None)
         if analysis is None:
-            self._send_admin_error(409, "NO_ANALYSIS", "no analysis pending - run /admin/analyze first")
+            self._send_admin_error(
+                409, "NO_ANALYSIS", "no analysis pending - run /admin/analyze first"
+            )
             return
 
         if not analysis.missing_blobs:
@@ -381,6 +387,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
 
         # Write to temp file and import
         import tempfile
+
         aes_key, hmac_key = crypto_keys
         store = self._get_store()
 
@@ -444,7 +451,9 @@ class BunckerHandler(BaseHTTPRequestHandler):
         try:
             inactive_days = int(inactive_days_str)
         except ValueError:
-            self._send_admin_error(400, "INVALID_PARAM", "inactive_days must be an integer")
+            self._send_admin_error(
+                400, "INVALID_PARAM", "inactive_days must be an integer"
+            )
             return
 
         store = self._get_store()
@@ -469,7 +478,9 @@ class BunckerHandler(BaseHTTPRequestHandler):
             return
 
         if not _OPERATOR_RE.match(operator):
-            self._send_admin_error(400, "INVALID_OPERATOR", "invalid operator name format")
+            self._send_admin_error(
+                400, "INVALID_OPERATOR", "invalid operator name format"
+            )
             return
 
         for d in digests:
@@ -504,7 +515,9 @@ class BunckerHandler(BaseHTTPRequestHandler):
             try:
                 since = datetime.fromisoformat(since_str)
             except ValueError:
-                self._send_admin_error(400, "INVALID_PARAM", "since must be ISO timestamp")
+                self._send_admin_error(
+                    400, "INVALID_PARAM", "since must be ISO timestamp"
+                )
                 return
 
         log_path = getattr(self._server_ref, "log_path", None)
@@ -605,7 +618,9 @@ class BunckerHandler(BaseHTTPRequestHandler):
             raw = self.rfile.read(content_length)
             return json.loads(raw)
         except (json.JSONDecodeError, ValueError):
-            self._send_admin_error(400, "INVALID_JSON", "request body must be valid JSON")
+            self._send_admin_error(
+                400, "INVALID_JSON", "request body must be valid JSON"
+            )
             return None
 
     def _send_json(self, status: int, data: object):
@@ -623,9 +638,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
 
     def _send_oci_error(self, status: int, code: str, message: str):
         """Send a standard OCI error response."""
-        body = json.dumps(
-            {"errors": [{"code": code, "message": message}]}
-        ).encode()
+        body = json.dumps({"errors": [{"code": code, "message": message}]}).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))

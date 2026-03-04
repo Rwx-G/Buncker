@@ -7,7 +7,6 @@ import json
 import os
 import time
 import urllib.request
-from pathlib import Path
 from urllib.error import HTTPError
 
 import pytest
@@ -143,7 +142,9 @@ class TestManifests:
             },
             "layers": [],
         }
-        self._setup_manifest(store, "docker.io", "library/nginx", "1.25", "linux/amd64", manifest)
+        self._setup_manifest(
+            store, "docker.io", "library/nginx", "1.25", "linux/amd64", manifest
+        )
 
         status, body, headers = _get(f"{base_url}/v2/library/nginx/manifests/1.25")
         assert status == 200
@@ -155,7 +156,9 @@ class TestManifests:
         assert headers["Content-Type"] == "application/vnd.oci.image.manifest.v1+json"
 
     def test_manifest_get_missing(self, base_url):
-        status, body, headers = _get(f"{base_url}/v2/library/nginx/manifests/nonexistent")
+        status, body, headers = _get(
+            f"{base_url}/v2/library/nginx/manifests/nonexistent"
+        )
         assert status == 404
 
     def test_manifest_head_existing(self, base_url, store):
@@ -169,7 +172,9 @@ class TestManifests:
             },
             "layers": [],
         }
-        self._setup_manifest(store, "docker.io", "library/alpine", "3.18", "linux/amd64", manifest)
+        self._setup_manifest(
+            store, "docker.io", "library/alpine", "3.18", "linux/amd64", manifest
+        )
 
         status, headers = _head(f"{base_url}/v2/library/alpine/manifests/3.18")
         assert status == 200
@@ -191,15 +196,15 @@ class TestManifests:
             },
             "layers": [],
         }
-        self._setup_manifest(store, "docker.io", "library/nginx", "1.25", "linux/amd64", manifest)
+        self._setup_manifest(
+            store, "docker.io", "library/nginx", "1.25", "linux/amd64", manifest
+        )
 
         # Compute the digest of the cached manifest
         raw = json.dumps(manifest, sort_keys=True).encode()
         digest = f"sha256:{hashlib.sha256(raw).hexdigest()}"
 
-        status, body, headers = _get(
-            f"{base_url}/v2/library/nginx/manifests/{digest}"
-        )
+        status, body, headers = _get(f"{base_url}/v2/library/nginx/manifests/{digest}")
         assert status == 200
 
 
@@ -329,12 +334,14 @@ class TestDockerPullSequence:
             ],
         }
         cache = ManifestCache(store.path)
-        cache.cache_manifest("docker.io", "library/nginx", "1.25", "linux/amd64", manifest)
+        cache.cache_manifest(
+            "docker.io", "library/nginx", "1.25", "linux/amd64", manifest
+        )
 
         # 3. Fetch manifest
         status, body, headers = _get(f"{base_url}/v2/library/nginx/manifests/1.25")
         assert status == 200
-        data = json.loads(body)
+        assert json.loads(body)["schemaVersion"] == 2
 
         # 4. Fetch config blob
         status, body, _ = _get(f"{base_url}/v2/library/nginx/blobs/{config_digest}")
@@ -407,7 +414,9 @@ class TestAdminAnalyze:
             ],
         }
         cache = ManifestCache(store.path)
-        cache.cache_manifest("docker.io", "library/nginx", "1.25", "linux/amd64", manifest)
+        cache.cache_manifest(
+            "docker.io", "library/nginx", "1.25", "linux/amd64", manifest
+        )
 
         status, body, _ = _post(
             f"{base_url}/admin/analyze",
@@ -480,7 +489,9 @@ class TestAdminGenerateManifest:
                 ],
             }
             cache = ManifestCache(store.path)
-            cache.cache_manifest("docker.io", "library/nginx", "1.25", "linux/amd64", manifest)
+            cache.cache_manifest(
+                "docker.io", "library/nginx", "1.25", "linux/amd64", manifest
+            )
 
             # Analyze
             status, body, _ = _post(
@@ -536,7 +547,9 @@ class TestAdminImport:
             # Build a response tar with a blob
             import io
             import tarfile
-            from shared.crypto import encrypt as crypto_encrypt, sign as crypto_sign
+
+            from shared.crypto import encrypt as crypto_encrypt
+            from shared.crypto import sign as crypto_sign
 
             blob_content = b"import test blob"
             blob_hex = hashlib.sha256(blob_content).hexdigest()
@@ -596,7 +609,6 @@ class TestAdminGc:
         # Backdate the sidecar
         meta = store.get_metadata(digest)
         meta["last_requested"] = "2020-01-01T00:00:00+00:00"
-        import tempfile
         digest_hex = digest.removeprefix("sha256:")
         sidecar = store.path / "meta" / "sha256" / f"{digest_hex}.json"
         sidecar.write_text(json.dumps(meta))
@@ -661,9 +673,27 @@ class TestAdminLogs:
         # Write some fake log entries
         log_path = server.log_path
         entries = [
-            json.dumps({"ts": "2026-03-04T10:00:00+00:00", "event": "server_started", "level": "INFO"}),
-            json.dumps({"ts": "2026-03-04T10:01:00+00:00", "event": "gc_executed", "level": "INFO"}),
-            json.dumps({"ts": "2026-03-04T10:02:00+00:00", "event": "server_started", "level": "INFO"}),
+            json.dumps(
+                {
+                    "ts": "2026-03-04T10:00:00+00:00",
+                    "event": "server_started",
+                    "level": "INFO",
+                }
+            ),
+            json.dumps(
+                {
+                    "ts": "2026-03-04T10:01:00+00:00",
+                    "event": "gc_executed",
+                    "level": "INFO",
+                }
+            ),
+            json.dumps(
+                {
+                    "ts": "2026-03-04T10:02:00+00:00",
+                    "event": "server_started",
+                    "level": "INFO",
+                }
+            ),
         ]
         log_path.write_text("\n".join(entries) + "\n")
 
@@ -676,7 +706,9 @@ class TestAdminLogs:
     def test_logs_with_limit(self, base_url, server):
         log_path = server.log_path
         entries = [
-            json.dumps({"ts": f"2026-03-04T10:0{i}:00+00:00", "event": "test", "level": "INFO"})
+            json.dumps(
+                {"ts": f"2026-03-04T10:0{i}:00+00:00", "event": "test", "level": "INFO"}
+            )
             for i in range(5)
         ]
         log_path.write_text("\n".join(entries) + "\n")
@@ -688,12 +720,18 @@ class TestAdminLogs:
     def test_logs_with_since(self, base_url, server):
         log_path = server.log_path
         entries = [
-            json.dumps({"ts": "2026-03-04T10:00:00+00:00", "event": "old", "level": "INFO"}),
-            json.dumps({"ts": "2026-03-04T12:00:00+00:00", "event": "new", "level": "INFO"}),
+            json.dumps(
+                {"ts": "2026-03-04T10:00:00+00:00", "event": "old", "level": "INFO"}
+            ),
+            json.dumps(
+                {"ts": "2026-03-04T12:00:00+00:00", "event": "new", "level": "INFO"}
+            ),
         ]
         log_path.write_text("\n".join(entries) + "\n")
 
-        status, body, _ = _get(f"{base_url}/admin/logs?since=2026-03-04T11:00:00%2B00:00")
+        status, body, _ = _get(
+            f"{base_url}/admin/logs?since=2026-03-04T11:00:00%2B00:00"
+        )
         data = json.loads(body)
         assert len(data) == 1
         assert data[0]["event"] == "new"

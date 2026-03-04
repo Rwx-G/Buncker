@@ -7,11 +7,9 @@ import io
 import json
 import os
 import tarfile
-from pathlib import Path
 
 import pytest
 
-from buncker.registry_client import ManifestCache
 from buncker.store import Store
 from buncker.transfer import generate_request, import_response
 from shared.crypto import decrypt, derive_keys, encrypt, generate_mnemonic, sign, verify
@@ -70,7 +68,9 @@ class TestGenerateRequest:
         assert path.name.endswith(".json.enc")
         assert path.stat().st_size > 0
 
-    def test_encrypted_file_decrypts_to_valid_json(self, crypto_keys, missing_blobs, tmp_path):
+    def test_encrypted_file_decrypts_to_valid_json(
+        self, crypto_keys, missing_blobs, tmp_path
+    ):
         aes_key, hmac_key = crypto_keys
         path = generate_request(
             missing_blobs,
@@ -109,7 +109,9 @@ class TestGenerateRequest:
         assert "my-server" in path.name
 
 
-def _build_response_tar(blobs: dict[str, bytes], errors: list[dict] | None = None) -> bytes:
+def _build_response_tar(
+    blobs: dict[str, bytes], errors: list[dict] | None = None
+) -> bytes:
     """Build a tar archive matching the transfer response format.
 
     Args:
@@ -286,6 +288,7 @@ class TestImportResponse:
         response_path.write_bytes(encrypted)
 
         import logging
+
         with caplog.at_level(logging.INFO, logger="buncker.transfer"):
             import_response(
                 response_path,
