@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions CI workflow (`ci.yml`) with lint and test jobs
 - `Makefile` with `lint`, `test`, and `build` targets
 - Placeholder test to verify CI pipeline end-to-end
+- Crypto module (`shared/crypto.py`): AES-256-GCM encrypt/decrypt, PBKDF2 key derivation, HMAC-SHA256 sign/verify, BIP-39 mnemonic generation
+- BIP-39 English wordlist (`shared/wordlist.py`): 2048 words embedded
 
 ## [0.0.1] - 2026-03-04
 
