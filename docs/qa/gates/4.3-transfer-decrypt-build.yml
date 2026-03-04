@@ -1,0 +1,18 @@
+schema: 1
+story: '4.3'
+story_title: 'Transfer - Decrypt Request & Build Response'
+gate: PASS
+status_reason: 'All ACs met. process_request decrypts and verifies HMAC before any processing. build_response builds OCI layout tar, includes ERRORS.json when needed, signs then encrypts. Round-trip tests use real crypto.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-03-04T23:00:00Z'
+top_issues:
+  - id: 'note-1'
+    severity: minor
+    description: 'build_response mutates the caller-supplied errors list as a side effect when missing blobs are discovered. No bug in current usage but is unexpected behavior.'
+  - id: 'note-2'
+    severity: minor
+    description: 'index.json uses a custom blobs list rather than the standard OCI manifests array. Intentional for Buncker transfer format but should be documented.'
+  - id: 'note-3'
+    severity: minor
+    description: 'Full tar and encrypted response are assembled in memory. For very large image transfers this could exhaust RAM. Acceptable for MVP.'
+waiver: { active: false }

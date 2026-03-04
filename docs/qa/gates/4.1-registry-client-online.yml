@@ -1,0 +1,15 @@
+schema: 1
+story: '4.1'
+story_title: 'Registry Client Online'
+gate: PASS
+status_reason: 'All ACs met. Auth discovery, token exchange, manifest fetch, blob streaming, retry (1s/3s/9s), 429 handling, and credentials-via-env are correctly implemented and tested with a real mock HTTP server.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-03-04T23:00:00Z'
+top_issues:
+  - id: 'note-1'
+    severity: minor
+    description: '_stream() buffers full blob in memory before yielding chunks. True streaming would require a retry-on-partial-read guard. Acceptable for MVP.'
+  - id: 'note-2'
+    severity: minor
+    description: 'JWT token expiry field not parsed; eviction relies on 401 re-challenge only. Acceptable for MVP.'
+waiver: { active: false }
