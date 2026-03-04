@@ -1,0 +1,9 @@
+schema: 1
+story: '1.4'
+story_title: 'Exception Hierarchy & Logging Setup'
+gate: PASS
+status_reason: 'All 5 ACs verified: BunckerError base + 6 subclasses (ConfigError, CryptoError, StoreError, ResolverError, RegistryError, TransferError) defined in shared/exceptions.py, each accepts message+context dict with __str__ including context, JsonFormatter outputs ts/event/level JSON Lines, setup_logging configures file handler (all levels) + stderr handler (ERROR+) with parent dir creation and handler deduplication, get_logger returns namespaced logger. 22 exception tests + 8 logging tests. CryptoError migrated from crypto.py with re-export for backward compatibility. UTC alias used correctly for Python 3.11+.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-03-04T23:00:00Z'
+top_issues: []
+waiver: { active: false }

@@ -1,0 +1,9 @@
+schema: 1
+story: '1.1'
+story_title: 'Project Scaffolding & CI'
+gate: PASS
+status_reason: 'All 7 ACs verified: folder structure present, pyproject.toml configures ruff with correct ruleset under [tool.ruff.lint], .gitignore covers all required patterns, CI workflow triggers on push/PR to main with lint+test jobs in correct order, placeholder test pyc confirms it ran and passed, Makefile has lint/test/build targets with .PHONY, README has Development section with setup and commands. Minor: test_placeholder.py source file removed after Story 1.2 real tests were added - pyc cache confirms it ran. CI workflow evolved beyond story scope (build-deb, release jobs added in Story 5.1) which is compliant.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-03-04T23:00:00Z'
+top_issues: []
+waiver: { active: false }
