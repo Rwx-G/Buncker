@@ -7,13 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-04
+
 ### Added
 
-- Blob store (`buncker/store.py`): OCI Image Layout initialization, atomic blob import with SHA-256 verification, metadata sidecars, `has_blob`, `get_blob`, `list_missing`
-- Store GC (`buncker/store.py`): `gc_report()` scans inactive blobs, `gc_execute()` deletes with audit logging and report validation
-- Manifest cache (`buncker/registry_client.py`): offline OCI manifest cache with tag and digest lookup, `_buncker` extension metadata
-- Dockerfile parser (`buncker/resolver.py`): `parse_dockerfile()` extracts FROM references with ARG substitution, `--platform`, digest, alias, Docker Hub normalization, private registry detection
-- Resolver pipeline (`buncker/resolver.py`): `resolve_dockerfile()` orchestrates parse -> manifest lookup -> `list_missing` with deduplication and warnings
 - HTTP server (`buncker/server.py`): `BunckerServer` with `ThreadingHTTPServer` and bounded `ThreadPoolExecutor`, graceful shutdown
 - OCI Distribution API (`buncker/handler.py`): GET/HEAD for `/v2/`, manifests, blobs with 64KB streaming, correct OCI headers (`Docker-Content-Digest`, `Content-Type`, `Content-Length`)
 - Admin API (`buncker/handler.py`): POST `/admin/analyze`, `/admin/generate-manifest`, `/admin/import`; GET `/admin/status`, `/admin/gc/report`, `/admin/logs`; POST `/admin/gc/execute`
@@ -25,7 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Server now uses `ThreadingHTTPServer` with bounded `ThreadPoolExecutor` for true concurrent request handling
 - Cross-platform daemon shutdown using `threading.Event` instead of `signal.pause()` (Windows support)
 - tarfile extraction fallback for Python < 3.12 (filter="data" not available on 3.11)
 - Chunked SHA256 verification for blob import to reduce memory pressure on large blobs
@@ -35,6 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SHA256 integrity verification when serving blobs via OCI GET endpoint
 - Path traversal prevention in `/admin/analyze` rejects `..` path components
 - Request body size limits: 4 GiB for import, 10 MiB for JSON endpoints
+
+## [0.2.0] - 2026-03-04
+
+### Added
+
+- Blob store (`buncker/store.py`): OCI Image Layout initialization, atomic blob import with SHA-256 verification, metadata sidecars, `has_blob`, `get_blob`, `list_missing`
+- Store GC (`buncker/store.py`): `gc_report()` scans inactive blobs, `gc_execute()` deletes with audit logging and report validation
+- Manifest cache (`buncker/registry_client.py`): offline OCI manifest cache with tag and digest lookup, `_buncker` extension metadata
+- Dockerfile parser (`buncker/resolver.py`): `parse_dockerfile()` extracts FROM references with ARG substitution, `--platform`, digest, alias, Docker Hub normalization, private registry detection
+- Resolver pipeline (`buncker/resolver.py`): `resolve_dockerfile()` orchestrates parse -> manifest lookup -> `list_missing` with deduplication and warnings
 
 ## [0.1.0] - 2026-03-04
 
@@ -62,6 +68,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Rwx-G/Buncker/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/Rwx-G/Buncker/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Rwx-G/Buncker/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/Rwx-G/Buncker/releases/tag/v0.0.1
