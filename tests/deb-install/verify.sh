@@ -415,6 +415,197 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# --- Live fetch: real alpine:3.19 from Docker Hub ---
+echo ""
+echo "[live-fetch]"
+
+# Fetch the real alpine:3.19 linux/amd64 manifest from Docker Hub
+# and inject it into the buncker manifest cache
+python3 << PYEOF
+import json, urllib.request, sys
+from pathlib import Path
+
+# Get auth token
+token_url = "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/alpine:pull"
+token = json.loads(urllib.request.urlopen(token_url).read())["token"]
+
+# Fetch the manifest index
+headers = {
+    "Authorization": f"Bearer {token}",
+    "Accept": "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json"
+}
+req = urllib.request.Request("https://registry-1.docker.io/v2/library/alpine/manifests/3.19", headers=headers)
+index = json.loads(urllib.request.urlopen(req).read())
+
+# Find linux/amd64 manifest digest
+amd64_digest = None
+for m in index.get("manifests", []):
+    p = m.get("platform", {})
+    if p.get("os") == "linux" and p.get("architecture") == "amd64":
+        if "attestation" not in m.get("annotations", {}).get("vnd.docker.reference.type", ""):
+            amd64_digest = m["digest"]
+            break
+
+if not amd64_digest:
+    print("ERROR: could not find linux/amd64 manifest for alpine:3.19")
+    sys.exit(1)
+
+# Fetch the actual platform manifest
+req2 = urllib.request.Request(
+    f"https://registry-1.docker.io/v2/library/alpine/manifests/{amd64_digest}",
+    headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.oci.image.manifest.v1+json"}
+)
+manifest = json.loads(urllib.request.urlopen(req2).read())
+
+# Cache it in the buncker store
+store = Path("$SETUP_STORE")
+cache_dir = store / "manifests" / "docker.io" / "library/alpine" / "3.19"
+cache_dir.mkdir(parents=True, exist_ok=True)
+
+import hashlib
+raw = json.dumps({k: v for k, v in manifest.items() if k != "_buncker"}, sort_keys=True).encode()
+source_digest = f"sha256:{hashlib.sha256(raw).hexdigest()}"
+manifest["_buncker"] = {"cached_at": "2026-03-04T00:00:00+00:00", "source_digest": source_digest}
+
+(cache_dir / "linux-amd64.json").write_text(json.dumps(manifest, indent=2))
+
+layers = manifest.get("layers", [])
+config_size = manifest.get("config", {}).get("size", 0)
+total = sum(l.get("size", 0) for l in layers) + config_size
+print(f"Cached real alpine:3.19 manifest: {len(layers)} layers + config, {total} bytes total")
+PYEOF
+
+CACHE_RC=$?
+if [ $CACHE_RC -eq 0 ]; then
+    echo "  PASS  fetched and cached alpine:3.19 manifest from Docker Hub"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  fetched and cached alpine:3.19 manifest from Docker Hub"
+    FAIL=$((FAIL + 1))
+fi
+
+# Analyze a Dockerfile using alpine:3.19
+TEST_DOCKERFILE_ALPINE="$SETUP_DIR/Dockerfile.alpine"
+cat > "$TEST_DOCKERFILE_ALPINE" << 'DKEOF'
+FROM alpine:3.19
+RUN apk add --no-cache curl
+DKEOF
+
+ANALYZE_ALPINE="$SETUP_DIR/analyze-alpine.json"
+/usr/bin/buncker --config "$SETUP_CONFIG" analyze "$TEST_DOCKERFILE_ALPINE" > "$ANALYZE_ALPINE" 2>&1
+
+check "analyze alpine:3.19 returns valid JSON" python3 -c "import json; json.load(open('$ANALYZE_ALPINE'))"
+check "analyze alpine:3.19 has missing_blobs" python3 -c "
+import json
+d = json.load(open('$ANALYZE_ALPINE'))
+n = len(d['missing_blobs'])
+assert n > 0, 'expected missing blobs for alpine:3.19'
+print(f'  ({n} missing blobs)')
+"
+
+# Generate transfer request for alpine
+cd "$SETUP_DIR"
+/usr/bin/buncker --config "$SETUP_CONFIG" generate-manifest > /dev/null 2>&1
+GENMAN_ALPINE_RC=$?
+
+ALPINE_ENC="$SETUP_DIR/buncker-request.json.enc"
+if [ $GENMAN_ALPINE_RC -eq 0 ] && [ -f "$ALPINE_ENC" ]; then
+    echo "  PASS  generate-manifest for alpine exits 0"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  generate-manifest for alpine (rc=$GENMAN_ALPINE_RC)"
+    FAIL=$((FAIL + 1))
+fi
+
+# buncker-fetch fetch: download real blobs from Docker Hub
+RESPONSE_DIR="$SETUP_DIR/response"
+mkdir -p "$RESPONSE_DIR"
+
+FETCH_RAW="$SETUP_DIR/fetch-raw.txt"
+FETCH_FILE="$SETUP_DIR/fetch-result.json"
+echo "$MNEMONIC" | /usr/bin/buncker-fetch --json --config "$TRANSFER_FETCH_CONFIG" \
+    fetch "$ALPINE_ENC" --output "$RESPONSE_DIR" > "$FETCH_RAW" 2>/dev/null
+FETCH_RC=$?
+sed 's/^> //' "$FETCH_RAW" > "$FETCH_FILE"
+if [ $FETCH_RC -eq 0 ]; then
+    echo "  PASS  buncker-fetch fetch exits 0"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  buncker-fetch fetch exits 0 (got $FETCH_RC)"
+    FAIL=$((FAIL + 1))
+fi
+
+check "fetch result is valid JSON" python3 -c "import json; json.load(open('$FETCH_FILE'))"
+check "fetch downloaded blobs" python3 -c "
+import json
+d = json.load(open('$FETCH_FILE'))
+assert d.get('status') == 'success', f'expected success, got {d.get(\"status\")}'
+downloaded = d.get('downloaded', 0)
+assert downloaded > 0, f'expected downloads, got {downloaded}'
+print(f'  ({downloaded} blobs downloaded)')
+"
+check "fetch produced response file" python3 -c "
+import json
+from pathlib import Path
+d = json.load(open('$FETCH_FILE'))
+resp = d.get('response_file', '')
+assert resp, 'no response_file in output'
+assert Path(resp).exists(), f'response file {resp} does not exist'
+print(f'  ({resp})')
+"
+
+# Import response back into buncker daemon
+RESPONSE_ENC=$(python3 -c "import json; print(json.load(open('$FETCH_FILE')).get('response_file',''))")
+if [ -n "$RESPONSE_ENC" ] && [ -f "$RESPONSE_ENC" ]; then
+    IMPORT_FILE="$SETUP_DIR/import-result.json"
+    /usr/bin/buncker --config "$SETUP_CONFIG" import "$RESPONSE_ENC" > "$IMPORT_FILE" 2>&1
+    IMPORT_RC=$?
+
+    if [ $IMPORT_RC -eq 0 ]; then
+        echo "  PASS  buncker import exits 0"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL  buncker import exits 0 (got $IMPORT_RC)"
+        FAIL=$((FAIL + 1))
+    fi
+
+    check "import result is valid JSON" python3 -c "import json; json.load(open('$IMPORT_FILE'))"
+    check "import reports blobs imported" python3 -c "
+import json
+d = json.load(open('$IMPORT_FILE'))
+imported = d.get('imported', 0)
+errors = d.get('errors', [])
+assert imported > 0, f'expected imported blobs, got {imported}'
+assert len(errors) == 0, f'unexpected errors: {errors}'
+print(f'  ({imported} blobs imported)')
+"
+
+    # Verify blobs are now in the store
+    check "blobs exist in store after import" python3 -c "
+import json
+from pathlib import Path
+d = json.load(open('$IMPORT_FILE'))
+store = Path('$SETUP_STORE')
+blobs_dir = store / 'blobs' / 'sha256'
+count = len(list(blobs_dir.iterdir())) if blobs_dir.exists() else 0
+assert count > 0, f'expected blobs in store, found {count}'
+print(f'  ({count} blobs in store)')
+"
+
+    # Verify status shows blobs
+    STATUS_AFTER="$SETUP_DIR/status-after.json"
+    /usr/bin/buncker --config "$SETUP_CONFIG" status > "$STATUS_AFTER" 2>&1
+    check "status shows blobs after import" python3 -c "
+import json
+d = json.load(open('$STATUS_AFTER'))
+assert d['blob_count'] > 0, f'expected blob_count > 0, got {d[\"blob_count\"]}'
+print(f'  (blob_count={d[\"blob_count\"]}, total_size={d[\"total_size\"]})')
+"
+else
+    echo "  FAIL  response file not found for import"
+    FAIL=$((FAIL + 1))
+fi
+
 # Stop daemon
 kill "$DAEMON_PID" 2>/dev/null || true
 wait "$DAEMON_PID" 2>/dev/null || true
