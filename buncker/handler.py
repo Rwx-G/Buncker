@@ -323,20 +323,6 @@ class BunckerHandler(BaseHTTPRequestHandler):
             )
             return
 
-        if not analysis.missing_blobs:
-            self._send_admin_error(409, "NO_MISSING", "no missing blobs to request")
-            return
-
-        crypto_keys = getattr(self._server_ref, "crypto_keys", None)
-        if crypto_keys is None:
-            self._send_admin_error(500, "NO_CRYPTO_KEYS", "crypto keys not configured")
-            return
-
-        from shared.crypto import encrypt, sign
-
-        aes_key, hmac_key = crypto_keys
-        source_id = getattr(self._server_ref, "source_id", "buncker")
-
         # Collect unique external images for manifest fetching on online side
         images = []
         seen_images: set[str] = set()
@@ -355,6 +341,20 @@ class BunckerHandler(BaseHTTPRequestHandler):
                     "platform": img.platform or "linux/amd64",
                 }
             )
+
+        if not analysis.missing_blobs and not images:
+            self._send_admin_error(409, "NO_MISSING", "no missing blobs to request")
+            return
+
+        crypto_keys = getattr(self._server_ref, "crypto_keys", None)
+        if crypto_keys is None:
+            self._send_admin_error(500, "NO_CRYPTO_KEYS", "crypto keys not configured")
+            return
+
+        from shared.crypto import encrypt, sign
+
+        aes_key, hmac_key = crypto_keys
+        source_id = getattr(self._server_ref, "source_id", "buncker")
 
         request_data = {
             "version": "1",
