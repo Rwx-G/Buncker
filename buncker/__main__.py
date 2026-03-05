@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 
 from buncker.config import load_config, save_config
-from shared.crypto import derive_keys, generate_mnemonic
+from shared.crypto import derive_keys, generate_mnemonic, split_mnemonic
 from shared.logging import setup_logging
 
 
@@ -130,12 +130,12 @@ def _cmd_setup(args: argparse.Namespace) -> None:
 
     import base64
 
-    # Generate mnemonic and salt
+    # Generate 16-word mnemonic (12 secret + 4 salt words)
     mnemonic = generate_mnemonic()
-    salt = os.urandom(32)
+    mnemonic_12, salt = split_mnemonic(mnemonic)
 
-    # Compute mnemonic hash for config verification
-    mnemonic_hash = f"sha256:{hashlib.sha256(mnemonic.encode()).hexdigest()}"
+    # Compute mnemonic hash for config verification (uses 12-word part)
+    mnemonic_hash = f"sha256:{hashlib.sha256(mnemonic_12.encode()).hexdigest()}"
 
     # Determine store path
     store_path = str(args.store_path) if args.store_path else "/var/lib/buncker"
@@ -205,23 +205,24 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         print("Error: mnemonic cannot be empty")
         sys.exit(1)
 
-    # Verify mnemonic hash
+    # Split 16-word mnemonic into 12-word secret + salt
+    try:
+        mnemonic_12, salt = split_mnemonic(mnemonic)
+    except Exception as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
+
+    # Verify mnemonic hash (uses 12-word part)
     crypto_config = config.get("crypto", {})
     expected_hash = crypto_config.get("mnemonic_hash", "")
-    actual_hash = f"sha256:{hashlib.sha256(mnemonic.encode()).hexdigest()}"
+    actual_hash = f"sha256:{hashlib.sha256(mnemonic_12.encode()).hexdigest()}"
 
     if expected_hash and actual_hash != expected_hash:
         print("Error: mnemonic does not match config - wrong mnemonic")
         sys.exit(1)
 
-    # Derive keys
-    salt_b64 = crypto_config.get("salt", "")
-    if not salt_b64:
-        print("Error: no salt in config - run 'buncker setup' first")
-        sys.exit(1)
-
-    salt = base64.b64decode(salt_b64)
-    aes_key, hmac_key = derive_keys(mnemonic, salt)
+    # Derive keys from 12-word mnemonic + embedded salt
+    aes_key, hmac_key = derive_keys(mnemonic_12, salt)
 
     # Initialize store and server
     from buncker.server import BunckerServer
@@ -269,10 +270,10 @@ def _cmd_rotate_keys(args: argparse.Namespace) -> None:
     old_crypto["deprecated_at"] = datetime.now(tz=UTC).isoformat()
     old_crypto["grace_period_days"] = args.grace_period
 
-    # Generate new mnemonic and salt
+    # Generate new 16-word mnemonic (12 secret + 4 salt)
     mnemonic = generate_mnemonic()
-    salt = os.urandom(32)
-    mnemonic_hash = f"sha256:{hashlib.sha256(mnemonic.encode()).hexdigest()}"
+    mnemonic_12, salt = split_mnemonic(mnemonic)
+    mnemonic_hash = f"sha256:{hashlib.sha256(mnemonic_12.encode()).hexdigest()}"
 
     config["crypto"] = {
         "salt": base64.b64encode(salt).decode(),
@@ -284,7 +285,7 @@ def _cmd_rotate_keys(args: argparse.Namespace) -> None:
 
     print("Keys rotated successfully.")
     print()
-    print("IMPORTANT: Write down the following NEW 12-word mnemonic.")
+    print("IMPORTANT: Write down the following NEW 16-word mnemonic.")
     print("This is the ONLY time it will be displayed.")
     print()
     print(f"  {mnemonic}")

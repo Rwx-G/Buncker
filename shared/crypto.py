@@ -16,6 +16,7 @@ from shared.wordlist import WORDLIST
 __all__ = [
     "CryptoError",
     "generate_mnemonic",
+    "split_mnemonic",
     "derive_keys",
     "encrypt",
     "decrypt",
@@ -25,14 +26,24 @@ __all__ = [
 
 
 def generate_mnemonic() -> str:
-    """Generate a 12-word BIP-39 mnemonic from 128-bit entropy.
+    """Generate a 16-word mnemonic: 12 BIP-39 words + 4 salt words.
+
+    The first 12 words encode 128-bit entropy (BIP-39 standard).
+    The last 4 words encode a 44-bit random salt used for PBKDF2 key
+    derivation, so both sides derive the same keys from the mnemonic
+    without needing a separate salt exchange.
 
     Returns:
-        Space-separated string of 12 words from the BIP-39 wordlist.
+        Space-separated string of 16 words from the BIP-39 wordlist.
     """
     entropy = secrets.token_bytes(16)
-    indices = _entropy_to_indices(entropy)
-    return " ".join(WORDLIST[i] for i in indices)
+    mnemonic_indices = _entropy_to_indices(entropy)
+
+    salt_bytes = secrets.token_bytes(6)  # 48 bits, we use 44
+    salt_indices = _salt_to_indices(salt_bytes)
+
+    all_indices = mnemonic_indices + salt_indices
+    return " ".join(WORDLIST[i] for i in all_indices)
 
 
 def _entropy_to_indices(entropy: bytes) -> list[int]:
@@ -45,6 +56,60 @@ def _entropy_to_indices(entropy: bytes) -> list[int]:
     bits = int.from_bytes(entropy, "big") << 4 | (checksum >> 4)
     mask = 0x7FF  # 11-bit mask
     return [(bits >> (11 * (11 - i))) & mask for i in range(12)]
+
+
+def _salt_to_indices(salt_bytes: bytes) -> list[int]:
+    """Convert salt bytes to 4 word indices (11 bits each, 44 bits total)."""
+    value = int.from_bytes(salt_bytes, "big")
+    mask = 0x7FF  # 11-bit mask
+    return [(value >> (11 * (3 - i))) & mask for i in range(4)]
+
+
+def split_mnemonic(mnemonic: str) -> tuple[str, bytes]:
+    """Split a 16-word mnemonic into the 12-word secret and salt bytes.
+
+    Args:
+        mnemonic: Space-separated 16-word mnemonic string.
+
+    Returns:
+        Tuple of (12-word mnemonic string, 32-byte salt derived from 4 salt words).
+        The salt is expanded to 32 bytes via SHA-256 for PBKDF2 compatibility.
+
+    Raises:
+        CryptoError: If mnemonic does not have 16 words.
+    """
+    words = mnemonic.strip().split()
+    if len(words) == 12:
+        # Legacy 12-word mnemonic - no embedded salt
+        raise CryptoError(
+            "12-word mnemonic detected. Buncker now requires 16 words "
+            "(12 secret + 4 salt). Please run buncker setup again."
+        )
+    if len(words) != 16:
+        raise CryptoError(
+            f"Expected 16-word mnemonic, got {len(words)} words"
+        )
+
+    mnemonic_part = " ".join(words[:12])
+
+    # Reconstruct salt from 4 word indices
+    word_to_index = {w: i for i, w in enumerate(WORDLIST)}
+    salt_indices = []
+    for w in words[12:]:
+        if w not in word_to_index:
+            raise CryptoError(f"Unknown word in mnemonic: {w!r}")
+        salt_indices.append(word_to_index[w])
+
+    # Pack 4 x 11-bit indices into 44 bits
+    value = 0
+    for idx in salt_indices:
+        value = (value << 11) | idx
+
+    # Expand to 32 bytes via SHA-256 for PBKDF2 salt
+    raw_salt = value.to_bytes(6, "big")
+    salt = hashlib.sha256(raw_salt).digest()
+
+    return mnemonic_part, salt
 
 
 def derive_keys(

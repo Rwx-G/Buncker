@@ -133,13 +133,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def cmd_pair(args: argparse.Namespace) -> int:
     """Handle 'pair' subcommand."""
-    print("Enter the 12-word mnemonic (space-separated):")
+    from shared.crypto import split_mnemonic
+
+    print("Enter the 16-word mnemonic (space-separated):")
     mnemonic_input = input("> ").strip()
 
     words = mnemonic_input.split()
-    if len(words) != 12:
+    if len(words) != 16:
         _print_error(
-            f"Expected 12 words, got {len(words)}. Check your input.",
+            f"Expected 16 words (12 secret + 4 salt), got {len(words)}.",
             args,
         )
         return 1
@@ -153,9 +155,14 @@ def cmd_pair(args: argparse.Namespace) -> int:
             )
             return 1
 
-    # Generate salt and derive keys
-    salt = os.urandom(32)
-    aes_key, hmac_key = derive_keys(mnemonic_input, salt)
+    # Extract salt from the last 4 words and derive keys
+    try:
+        mnemonic_12, salt = split_mnemonic(mnemonic_input)
+    except Exception as exc:
+        _print_error(str(exc), args)
+        return 1
+
+    aes_key, hmac_key = derive_keys(mnemonic_12, salt)
 
     # Create derived_key_check (encrypt a known marker)
     marker = b"buncker-pair-check"
@@ -441,14 +448,20 @@ def cmd_cache_clean(args: argparse.Namespace) -> int:
 def _derive_keys_from_config(config: dict) -> tuple[bytes, bytes]:
     """Derive AES and HMAC keys from config (requires user mnemonic input).
 
-    This prompts for the mnemonic and verifies it against derived_key_check.
+    This prompts for the 16-word mnemonic, extracts the salt from the last
+    4 words, and verifies against derived_key_check.
     """
-    salt = base64.b64decode(config["salt"])
+    from shared.crypto import split_mnemonic
 
-    print("Enter the 12-word mnemonic:", file=sys.stderr)
+    print("Enter the 16-word mnemonic:", file=sys.stderr)
     mnemonic = input("> ").strip()
 
-    aes_key, hmac_key = derive_keys(mnemonic, salt)
+    try:
+        mnemonic_12, salt = split_mnemonic(mnemonic)
+    except Exception as exc:
+        raise CryptoError(str(exc)) from exc
+
+    aes_key, hmac_key = derive_keys(mnemonic_12, salt)
 
     # Verify against derived_key_check
     check_data = base64.b64decode(config["derived_key_check"])

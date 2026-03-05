@@ -11,6 +11,7 @@ from shared.crypto import (
     encrypt,
     generate_mnemonic,
     sign,
+    split_mnemonic,
     verify,
 )
 from shared.wordlist import WORDLIST
@@ -19,10 +20,10 @@ from shared.wordlist import WORDLIST
 class TestGenerateMnemonic:
     """Tests for generate_mnemonic()."""
 
-    def test_returns_12_words(self) -> None:
+    def test_returns_16_words(self) -> None:
         mnemonic = generate_mnemonic()
         words = mnemonic.split()
-        assert len(words) == 12
+        assert len(words) == 16
 
     def test_all_words_in_wordlist(self) -> None:
         mnemonic = generate_mnemonic()
@@ -34,6 +35,50 @@ class TestGenerateMnemonic:
         m1 = generate_mnemonic()
         m2 = generate_mnemonic()
         assert m1 != m2
+
+
+class TestSplitMnemonic:
+    """Tests for split_mnemonic()."""
+
+    def test_splits_16_words_into_mnemonic_and_salt(self) -> None:
+        full = generate_mnemonic()
+        mnemonic_12, salt = split_mnemonic(full)
+        assert len(mnemonic_12.split()) == 12
+        assert len(salt) == 32
+
+    def test_same_mnemonic_gives_same_salt(self) -> None:
+        full = generate_mnemonic()
+        _, salt1 = split_mnemonic(full)
+        _, salt2 = split_mnemonic(full)
+        assert salt1 == salt2
+
+    def test_different_mnemonics_give_different_salts(self) -> None:
+        m1 = generate_mnemonic()
+        m2 = generate_mnemonic()
+        _, salt1 = split_mnemonic(m1)
+        _, salt2 = split_mnemonic(m2)
+        assert salt1 != salt2
+
+    def test_12_words_raises_error(self) -> None:
+        words_12 = " ".join(WORDLIST[i] for i in range(12))
+        with pytest.raises(CryptoError, match="16 words"):
+            split_mnemonic(words_12)
+
+    def test_wrong_count_raises_error(self) -> None:
+        with pytest.raises(CryptoError, match="Expected 16-word"):
+            split_mnemonic("one two three")
+
+    def test_keys_derived_from_split_match(self) -> None:
+        """Both sides derive same keys from the same 16-word mnemonic."""
+        full = generate_mnemonic()
+        mnemonic_12, salt = split_mnemonic(full)
+        k1 = derive_keys(mnemonic_12, salt, iterations=1000)
+
+        # Simulate the other side splitting the same mnemonic
+        mnemonic_12b, salt_b = split_mnemonic(full)
+        k2 = derive_keys(mnemonic_12b, salt_b, iterations=1000)
+
+        assert k1 == k2
 
 
 class TestDeriveKeys:
