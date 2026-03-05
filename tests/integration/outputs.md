@@ -3,15 +3,25 @@
 ## buncker setup
 
 ```
-Buncker initialized successfully.
-IMPORTANT: Write down the following 12-word mnemonic.
-This is the ONLY time it will be displayed.
-You need it to start the daemon and for key recovery.
+[1/4] Generating cryptographic keys...  done
+[2/4] Initializing store...             done
+[3/4] Saving configuration...           done
+[4/4] Enabling and starting daemon...   skipped
+  Warning: Could not enable daemon. Start manually with: sudo systemctl enable --now buncker
 
-  critic foot april obey garbage enjoy caught segment strategy obvious help elevator
+============================================================
 
-Config: /etc/buncker/config.json
-Store:  /var/lib/buncker
+  IMPORTANT - Write down your 16-word recovery mnemonic.
+  This is the ONLY time it will be displayed.
+
+  fat trade nuclear asthma good pave salmon glass
+  bonus flat drip one sign festival remove major
+
+  Config:  /etc/buncker/config.json
+  Store:   /var/lib/buncker
+  Daemon:  not started (systemctl unavailable or not root)
+
+============================================================
 ```
 
 ## buncker serve
@@ -25,7 +35,7 @@ Enter mnemonic:
 ## buncker-fetch pair
 
 ```
-Enter the 12-word mnemonic (space-separated):
+Enter the 16-word mnemonic (space-separated):
 >   status: success
   message: Pairing successful
 ```
@@ -104,7 +114,7 @@ Transfer request saved to buncker-request.json.enc
 
 ```json
 {
-  "version": "0.6.1",
+  "version": "0.7.0",
   "source_id": "buncker-1ac37e30",
   "store_path": "/var/lib/buncker",
   "blob_count": 2,

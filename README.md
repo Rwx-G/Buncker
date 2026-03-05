@@ -40,7 +40,7 @@ Nothing equivalent exists: [Hauler](https://github.com/hauler-dev/hauler) does b
 | **Delta sync** | Only missing layers are transferred, not entire images |
 | **Dockerfile resolver** | Static analysis of `FROM`, `ARG`, multi-stage, multi-arch |
 | **Encrypted transfers** | AES-256-GCM + HMAC-SHA256 on all USB files |
-| **BIP-39 mnemonic** | 12-word shared secret, no PKI to manage |
+| **BIP-39 mnemonic** | 16-word shared secret, no PKI to manage |
 | **OCI standard** | Local registry compatible with `docker pull`, no client changes |
 | **Full audit trail** | Every operation logged in structured JSON Lines |
 | **Zero exotic deps** | Python stdlib + `python3-cryptography` (apt) |
@@ -159,8 +159,8 @@ buncker-fetch pair
 Expected output:
 
 ```
-Enter the 12-word mnemonic (space-separated):
-> abandon ability able about above absent absorb abstract absurd abuse access accident
+Enter the 16-word mnemonic (space-separated):
+> pride evoke tumble stool coach enact lazy ribbon silent split orphan peace flavor broom render desk
   status: success
   message: Pairing successful
 ```
@@ -339,7 +339,7 @@ Generate a new mnemonic when compromised or as periodic security practice:
 
 ```bash
 sudo buncker rotate-keys --grace-period 30
-# Write down the new 12-word mnemonic
+# Write down the new 16-word mnemonic
 # Restart daemon with new mnemonic
 sudo systemctl restart buncker
 # Re-pair online machine
@@ -390,7 +390,7 @@ sudo journalctl -u buncker -f
 |---------|-------|----------|
 | `dpkg: dependency problems` | Missing Python or cryptography | `sudo apt-get install -f` |
 | `Cannot connect to buncker daemon` | Daemon not running | `sudo systemctl start buncker` and check `journalctl -u buncker` |
-| `mnemonic does not match config` | Wrong mnemonic entered | Re-enter the correct 12 words from initial setup |
+| `mnemonic does not match config` | Wrong mnemonic entered | Re-enter the correct 16 words from initial setup |
 | `Mnemonic verification failed` on fetch | Mnemonic or salt mismatch | Re-run `buncker-fetch pair` with the correct mnemonic |
 | `buncker setup` fails with "Config already exists" | Previous setup detected | Back up and remove `/etc/buncker/config.json` to re-initialize |
 | Blobs not found after import | OCI store path mismatch | Verify `store_path` in config matches daemon working directory |

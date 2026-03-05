@@ -74,26 +74,39 @@ buncker setup
 
 Expected output:
 ```
-Buncker setup complete.
-Mnemonic (save these 12 words securely):
-  apple banana cherry ... (12 words)
-Config written to /etc/buncker/config.json
+[1/4] Generating cryptographic keys...  done
+[2/4] Initializing store...             done
+[3/4] Saving configuration...           done
+[4/4] Enabling and starting daemon...   done
+
+============================================================
+
+  IMPORTANT - Write down your 16-word recovery mnemonic.
+  This is the ONLY time it will be displayed.
+
+  <8 words>
+  <8 words>
+
+  Config:  /etc/buncker/config.json
+  Store:   /var/lib/buncker
+  Daemon:  active on 0.0.0.0:5000
+
+============================================================
 ```
 
-**Save the 12 words** - they are needed for pairing.
+**Save the 16 words** - they are needed for pairing.
 
-## Step 2: Start buncker daemon (offline server)
-
-On the same SSH session (buncker-offline):
+Setup auto-starts the daemon via systemd and stores the mnemonic in
+`/etc/buncker/env`. In Docker containers (no systemd), step 4 shows
+"skipped" and you must start the daemon manually:
 
 ```bash
-buncker serve
-# Enter the 12-word mnemonic when prompted
+BUNCKER_MNEMONIC="<16 words>" buncker serve
 ```
 
 Expected output:
 ```
-Listening on 0.0.0.0:5000
+Buncker serving on 0.0.0.0:5000
 ```
 
 Leave this running. Open new terminals for next steps.
@@ -111,7 +124,7 @@ Pair with the offline server:
 
 ```bash
 buncker-fetch pair
-# Enter the same 12-word mnemonic
+# Enter the same 16-word mnemonic
 ```
 
 Expected output:

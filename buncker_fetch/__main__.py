@@ -75,7 +75,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
 
     # pair
-    pair_parser = sub.add_parser("pair", help="Enter 12-word mnemonic and derive keys")
+    pair_parser = sub.add_parser("pair", help="Enter 16-word mnemonic and derive keys")
     pair_parser.set_defaults(func=cmd_pair)
 
     # inspect
