@@ -22,5 +22,6 @@ RUN mkdir -p /run/sshd && \
 
 EXPOSE 22
 
-# Drop default route to simulate air-gap (mgmt network is for SSH only)
-CMD ip route del default 2>/dev/null; /usr/sbin/sshd -D
+# Drop default route to simulate air-gap, then start sshd
+ENTRYPOINT ["/bin/sh", "-c"]
+CMD ["ip route del default 2>/dev/null; exec /usr/sbin/sshd -D"]

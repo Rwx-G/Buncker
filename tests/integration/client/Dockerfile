@@ -26,6 +26,5 @@ COPY tests/integration/sample/Dockerfile.simple /workspace/Dockerfile
 EXPOSE 22
 
 # Drop default route to simulate air-gap, then start dockerd + sshd
-CMD ip route del default 2>/dev/null; \
-    dockerd --host=unix:///var/run/docker.sock & \
-    /usr/sbin/sshd -D
+ENTRYPOINT ["/bin/sh", "-c"]
+CMD ["ip route del default 2>/dev/null; dockerd --host=unix:///var/run/docker.sock & exec /usr/sbin/sshd -D"]
