@@ -95,7 +95,9 @@ def _build_parser() -> argparse.ArgumentParser:
     fetch_parser.add_argument(
         "request_file",
         type=Path,
-        help="Path to .json.enc",
+        nargs="?",
+        default=None,
+        help="Path to .json.enc (auto-scans transfer_path if omitted)",
     )
     fetch_parser.add_argument(
         "--output",
@@ -221,17 +223,37 @@ def cmd_fetch(args: argparse.Namespace) -> int:
 
     aes_key, hmac_key = _derive_keys_from_config(config)
 
+    # Resolve request file
+    request_file = args.request_file
+    if request_file is None:
+        tp = config.get("transfer_path", "")
+        if not tp:
+            _print_error(
+                "No request file specified and transfer_path not configured", args
+            )
+            return 1
+        candidates = sorted(
+            Path(tp).glob("*.json.enc"), key=lambda p: p.stat().st_mtime
+        )
+        if not candidates:
+            _print_error(f"No *.json.enc files found in {tp}", args)
+            return 1
+        request_file = candidates[-1]
+        if not getattr(args, "json_output", False):
+            print(f"Auto-detected: {request_file}", file=sys.stderr)
+
     # Process request
     request_data = process_request(
-        args.request_file,
+        request_file,
         aes_key=aes_key,
         hmac_key=hmac_key,
     )
 
     blobs = request_data.get("blobs", [])
+    images = request_data.get("images", [])
     source_id = request_data.get("source_id", "unknown")
 
-    if not blobs:
+    if not blobs and not images:
         _print_output({"status": "success", "message": "No blobs to fetch"}, args)
         return 0
 
@@ -268,8 +290,56 @@ def cmd_fetch(args: argparse.Namespace) -> int:
     # Fetch manifests for images listed in the request
     fetched_manifests = _fetch_manifests(request_data, config)
 
-    # Build response
-    output_dir = args.output or Path.cwd()
+    # Extract blob digests from fetched manifests and download them too
+    known_digests = {b.get("digest") for b in blobs}
+    manifest_blobs: list[dict] = []
+    for m in fetched_manifests:
+        manifest = m.get("manifest", {})
+        registry = m.get("registry", "docker.io")
+        repository = m.get("repository", "")
+        for layer in manifest.get("layers", []) + [manifest.get("config", {})]:
+            digest = layer.get("digest", "")
+            size = layer.get("size", 0)
+            if digest and digest not in known_digests:
+                known_digests.add(digest)
+                manifest_blobs.append(
+                    {
+                        "digest": digest,
+                        "size": size,
+                        "registry": registry,
+                        "repository": repository,
+                    }
+                )
+
+    if manifest_blobs:
+        by_registry_extra: dict[str, list[dict]] = {}
+        for blob in manifest_blobs:
+            reg = blob.get("registry", "docker.io")
+            by_registry_extra.setdefault(reg, []).append(blob)
+        for registry, registry_blobs in by_registry_extra.items():
+            host = registry
+            if host == "docker.io":
+                host = "registry-1.docker.io"
+            credentials = load_credentials(config, registry)
+            client = RegistryClient(host, credentials=credentials)
+            fetcher = Fetcher(
+                client,
+                cache,
+                parallelism=args.parallelism,
+                progress_json=args.json_output,
+            )
+            result = fetcher.fetch(registry_blobs)
+            all_downloaded.extend(result.downloaded)
+            all_skipped.extend(result.skipped)
+            all_errors.extend(result.errors)
+        # Include manifest-derived blobs in response
+        blobs = blobs + manifest_blobs
+
+    # Build response - precedence: --output > transfer_path > cwd
+    output_dir = args.output
+    if output_dir is None:
+        tp = config.get("transfer_path", "")
+        output_dir = Path(tp) if tp else Path.cwd()
     response_path = build_response(
         cache,
         blobs,
