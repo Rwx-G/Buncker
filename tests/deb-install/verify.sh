@@ -355,17 +355,17 @@ if [ -f "$ENC_FILE" ]; then
     # so for the transfer test we copy the daemon's salt into the fetch config.
     TRANSFER_FETCH_CONFIG="$SETUP_DIR/fetch-transfer.json"
     python3 << PYEOF
-import json, base64
-daemon_cfg = json.load(open("$SETUP_CONFIG"))
-salt = daemon_cfg["crypto"]["salt"]
-# Derive keys and create derived_key_check with daemon salt
-import sys
+import json, base64, sys
 sys.path.insert(0, "/usr/lib/buncker-fetch")
-from shared.crypto import derive_keys, encrypt
-aes_key, hmac_key = derive_keys("$MNEMONIC", base64.b64decode(salt))
+from shared.crypto import derive_keys, split_mnemonic, encrypt
+daemon_cfg = json.load(open("$SETUP_CONFIG"))
+salt_b64 = daemon_cfg["crypto"]["salt"]
+# split_mnemonic extracts the 12-word secret + salt from the 16-word mnemonic
+mnemonic_12, salt = split_mnemonic("$MNEMONIC")
+aes_key, hmac_key = derive_keys(mnemonic_12, salt)
 marker = b"buncker-pair-check"
 derived_key_check = base64.b64encode(encrypt(marker, aes_key)).decode()
-fetch_cfg = {"salt": salt, "derived_key_check": derived_key_check}
+fetch_cfg = {"salt": salt_b64, "derived_key_check": derived_key_check}
 with open("$TRANSFER_FETCH_CONFIG", "w") as f:
     json.dump(fetch_cfg, f, indent=2)
 PYEOF
