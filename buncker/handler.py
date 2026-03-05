@@ -337,11 +337,31 @@ class BunckerHandler(BaseHTTPRequestHandler):
         aes_key, hmac_key = crypto_keys
         source_id = getattr(self._server_ref, "source_id", "buncker")
 
+        # Collect unique external images for manifest fetching on online side
+        images = []
+        seen_images: set[str] = set()
+        for img in analysis.images:
+            if img.is_internal or img.is_private:
+                continue
+            key = f"{img.registry}/{img.repository}:{img.tag}"
+            if key in seen_images:
+                continue
+            seen_images.add(key)
+            images.append(
+                {
+                    "registry": img.registry,
+                    "repository": img.repository,
+                    "tag": img.tag,
+                    "platform": img.platform or "linux/amd64",
+                }
+            )
+
         request_data = {
             "version": "1",
             "buncker_version": __version__,
             "generated_at": datetime.now(tz=UTC).isoformat(),
             "source_id": source_id,
+            "images": images,
             "blobs": analysis.missing_blobs,
         }
 
