@@ -1,4 +1,4 @@
-"""Tests for CLI UX improvements: ANSI helpers, setup auto-start, prepare, transfer_path."""
+"""Tests for CLI UX improvements: ANSI helpers, setup, prepare."""
 
 from __future__ import annotations
 
@@ -241,10 +241,6 @@ class TestPrepareSubparser:
     """Tests for prepare subcommand parsing."""
 
     def test_prepare_registered_as_subcommand(self):
-        import argparse
-
-        from buncker.__main__ import main
-
         # Verify prepare doesn't cause parse error
         with (
             mock.patch(

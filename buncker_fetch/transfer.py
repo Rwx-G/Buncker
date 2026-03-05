@@ -165,7 +165,9 @@ def build_response(
                 tag = m["tag"]
                 platform = m["platform"]
                 manifest_json = json.dumps(m["manifest"], indent=2)
-                manifest_path = f"manifests/{registry}/{repository}/{tag}/{platform}.json"
+                manifest_path = (
+                    f"manifests/{registry}/{repository}/{tag}/{platform}.json"
+                )
                 _add_string_to_tar(tar, manifest_path, manifest_json)
 
         # Include .deb for auto-update if available

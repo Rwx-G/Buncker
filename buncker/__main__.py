@@ -72,7 +72,9 @@ def main() -> None:
     )
 
     # generate-manifest
-    sub_gen = subparsers.add_parser("generate-manifest", help="Generate transfer request")
+    sub_gen = subparsers.add_parser(
+        "generate-manifest", help="Generate transfer request"
+    )
     sub_gen.add_argument(
         "--output",
         type=Path,
@@ -179,7 +181,11 @@ def _cmd_setup(args: argparse.Namespace) -> None:
     import base64
 
     # [1/4] Generate cryptographic keys
-    print(f"{_c('[1/4]', _BOLD)} Generating cryptographic keys...  ", end="", flush=True)
+    print(
+        f"{_c('[1/4]', _BOLD)} Generating cryptographic keys... ",
+        end="",
+        flush=True,
+    )
     mnemonic = generate_mnemonic()
     mnemonic_12, salt = split_mnemonic(mnemonic)
     mnemonic_hash = f"sha256:{hashlib.sha256(mnemonic_12.encode()).hexdigest()}"
@@ -187,7 +193,11 @@ def _cmd_setup(args: argparse.Namespace) -> None:
 
     # [2/4] Initialize store
     store_path = str(args.store_path) if args.store_path else "/var/lib/buncker"
-    print(f"{_c('[2/4]', _BOLD)} Initializing store...             ", end="", flush=True)
+    print(
+        f"{_c('[2/4]', _BOLD)} Initializing store...             ",
+        end="",
+        flush=True,
+    )
     store_dir = Path(store_path)
     store_dir.mkdir(parents=True, exist_ok=True)
     from buncker.store import Store
@@ -196,7 +206,11 @@ def _cmd_setup(args: argparse.Namespace) -> None:
     print(_c("done", _GREEN))
 
     # [3/4] Save configuration
-    print(f"{_c('[3/4]', _BOLD)} Saving configuration...           ", end="", flush=True)
+    print(
+        f"{_c('[3/4]', _BOLD)} Saving configuration...           ",
+        end="",
+        flush=True,
+    )
     config = {
         "source_id": f"buncker-{os.urandom(4).hex()}",
         "bind": "0.0.0.0",
@@ -218,14 +232,18 @@ def _cmd_setup(args: argparse.Namespace) -> None:
     env_path = config_path.parent / "env"
     env_path.parent.mkdir(parents=True, exist_ok=True)
     env_path.write_text(f"BUNCKER_MNEMONIC={mnemonic}\n", encoding="utf-8")
-    try:
+    import contextlib
+
+    with contextlib.suppress(OSError):
         env_path.chmod(0o600)
-    except OSError:
-        pass
     print(_c("done", _GREEN))
 
     # [4/4] Enable and start daemon
-    print(f"{_c('[4/4]', _BOLD)} Enabling and starting daemon...   ", end="", flush=True)
+    print(
+        f"{_c('[4/4]', _BOLD)} Enabling and starting daemon...   ",
+        end="",
+        flush=True,
+    )
     daemon_status = "active"
     try:
         subprocess.run(
@@ -338,8 +356,6 @@ def _resolve_transfer_path(config: dict) -> Path | None:
 
 def _cmd_serve(args: argparse.Namespace) -> None:
     """Start the HTTP daemon."""
-    import base64
-
     config = load_config(args.config)
     setup_logging(
         level=config.get("log_level", "INFO"),

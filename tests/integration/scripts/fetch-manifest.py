@@ -71,4 +71,6 @@ OUTPUT.write_text(json.dumps(manifest, indent=2))
 layers = manifest.get("layers", [])
 config_size = manifest.get("config", {}).get("size", 0)
 total = sum(layer.get("size", 0) for layer in layers) + config_size
-print(f"OK: {IMAGE}:{TAG} manifest saved ({len(layers)} layers + config, {total} bytes)")
+print(
+    f"OK: {IMAGE}:{TAG} manifest saved ({len(layers)} layers + config, {total} bytes)"
+)

@@ -86,9 +86,7 @@ def split_mnemonic(mnemonic: str) -> tuple[str, bytes]:
             "(12 secret + 4 salt). Please run buncker setup again."
         )
     if len(words) != 16:
-        raise CryptoError(
-            f"Expected 16-word mnemonic, got {len(words)} words"
-        )
+        raise CryptoError(f"Expected 16-word mnemonic, got {len(words)} words")
 
     mnemonic_part = " ".join(words[:12])
 

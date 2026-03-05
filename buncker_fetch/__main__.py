@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import base64
 import json
-import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -426,7 +425,8 @@ def _fetch_manifests(
                     ref_type = annotations.get("vnd.docker.reference.type", "")
                     if ref_type == "attestation-manifest":
                         continue
-                    if p.get("os") == target_os and p.get("architecture") == target_arch:
+                    os_match = p.get("os") == target_os
+                    if os_match and p.get("architecture") == target_arch:
                         digest = entry["digest"]
                         platform_manifest = client.fetch_manifest(repository, digest)
                         break

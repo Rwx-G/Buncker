@@ -26,4 +26,6 @@ output.write_text(json.dumps(manifest, indent=2))
 layers = manifest.get("layers", [])
 config_size = manifest.get("config", {}).get("size", 0)
 total = sum(layer.get("size", 0) for layer in layers) + config_size
-print(f"OK: injected {REPO}:{TAG} into {cache_dir} ({len(layers)} layers, {total} bytes)")
+print(
+    f"OK: injected {REPO}:{TAG} into {cache_dir} ({len(layers)} layers, {total} bytes)"
+)
