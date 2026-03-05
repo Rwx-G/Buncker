@@ -20,6 +20,7 @@ _DEFAULTS = {
     "private_registries": [],
     "gc": {"inactive_days_threshold": 90},
     "log_level": "INFO",
+    "transfer_path": "",
 }
 
 
