@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Multi-container integration test environment (`tests/integration/`): 3 services (online, buncker-offline, client), 2 networks (bridge + internal), shared transfer volume simulating USB key
+- Step-by-step README walkthrough for the full air-gapped cycle (setup, pair, analyze, fetch, import, docker build)
+- 16-word mnemonic with embedded salt (12 secret + 4 salt words) for air-gapped pairing without separate salt exchange
+- OCI manifests included in transfer response - online side fetches manifests alongside blobs so offline can cache them on import
+- Docker client setup guide in README: explicit registry references and registry mirror approaches
+
+### Fixed
+
+- Thread pool initialization order in server: `_pool` created before `super().__init__()` to prevent `AttributeError` when port bind fails
+- .deb package no longer ships skeleton `config.json` that blocked `buncker setup`
+
+### Changed
+
+- **BREAKING**: mnemonic is now 16 words instead of 12 (existing setups must re-run `buncker setup`)
+
 ## [0.6.1] - 2026-03-04
 
 ### Added
