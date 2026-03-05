@@ -100,23 +100,29 @@ sudo buncker setup
 Expected output:
 
 ```
-Buncker initialized successfully.
+[1/4] Generating cryptographic keys...  done
+[2/4] Initializing store...             done
+[3/4] Saving configuration...           done
+[4/4] Enabling and starting daemon...   done
 
-IMPORTANT: Write down the following 12-word mnemonic.
-This is the ONLY time it will be displayed.
-You need it to start the daemon and for key recovery.
+============================================================
 
-  abandon ability able about above absent absorb abstract absurd abuse access accident
+  IMPORTANT - Write down your 16-word recovery mnemonic.
+  This is the ONLY time it will be displayed.
 
-Config: /etc/buncker/config.json
-Store:  /var/lib/buncker
+  pride evoke tumble stool coach enact lazy ribbon
+  silent split orphan peace flavor broom render desk
+
+  Config:  /etc/buncker/config.json
+  Store:   /var/lib/buncker
+  Daemon:  active on 0.0.0.0:5000
+
+============================================================
 ```
 
-Start the daemon:
-
-```bash
-sudo systemctl enable --now buncker
-```
+Setup automatically enables and starts the daemon via systemd. The mnemonic
+is also saved to `/etc/buncker/env` (mode 0600) so the service can restart
+without manual re-entry.
 
 **2. Analyze a Dockerfile and generate a transfer request**
 
@@ -266,6 +272,7 @@ references as in Approach 1.
 | `private_registries` | list | `[]` | Private registry patterns to skip |
 | `gc.inactive_days_threshold` | int | `90` | GC inactivity threshold in days |
 | `log_level` | string | `"INFO"` | Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
+| `transfer_path` | string | `""` | Default directory for transfer files (empty = cwd) |
 
 ### Online CLI (`~/.buncker/config.json`)
 
@@ -273,6 +280,7 @@ references as in Approach 1.
 |-------|------|-------------|
 | `salt` | string | Base64-encoded PBKDF2 salt (set by `buncker-fetch pair`) |
 | `derived_key_check` | string | Encrypted marker for mnemonic verification |
+| `transfer_path` | string | Default directory for transfer files (empty = cwd) |
 
 ## Command Reference
 
@@ -280,11 +288,12 @@ references as in Approach 1.
 
 | Command | Description |
 |---------|-------------|
-| `buncker setup` | Initialize: generate mnemonic, create config, init store |
+| `buncker setup` | Initialize: generate keys, create config, init store, start daemon |
 | `buncker serve` | Start the HTTP daemon (reads mnemonic from `BUNCKER_MNEMONIC` env or stdin) |
+| `buncker prepare <Dockerfile>` | Analyze + generate transfer request in one step |
 | `buncker analyze <Dockerfile>` | Analyze Dockerfile and identify missing blobs |
 | `buncker generate-manifest` | Generate an encrypted transfer request |
-| `buncker import <file.tar.enc>` | Import an encrypted transfer response |
+| `buncker import [file.tar.enc]` | Import an encrypted transfer response (auto-scans `transfer_path` if omitted) |
 | `buncker status` | Show registry status (blob count, store size) |
 | `buncker gc --report` | List inactive blobs eligible for garbage collection |
 | `buncker gc --execute` | Delete reported inactive blobs |
@@ -296,7 +305,8 @@ references as in Approach 1.
 | Flag | Description |
 |------|-------------|
 | `--config <path>` | Config file path (default: `/etc/buncker/config.json`) |
-| `--build-arg KEY=VALUE` | Build argument for `analyze` (repeatable) |
+| `--build-arg KEY=VALUE` | Build argument for `analyze` and `prepare` (repeatable) |
+| `--output <path>` | Output directory for `generate-manifest` and `prepare` |
 | `--inactive-days N` | GC inactivity threshold (default: 90) |
 | `--operator <name>` | Operator name for GC audit trail |
 | `--grace-period N` | Key rotation grace period in days (default: 30) |
@@ -305,9 +315,9 @@ references as in Approach 1.
 
 | Command | Description |
 |---------|-------------|
-| `buncker-fetch pair` | Enter 12-word mnemonic and derive encryption keys |
+| `buncker-fetch pair` | Enter 16-word mnemonic and derive encryption keys |
 | `buncker-fetch inspect <file.json.enc>` | Decrypt and display transfer request summary |
-| `buncker-fetch fetch <file.json.enc>` | Fetch missing blobs and build encrypted response |
+| `buncker-fetch fetch [file.json.enc]` | Fetch missing blobs and build encrypted response (auto-scans `transfer_path` if omitted) |
 | `buncker-fetch status` | Display cache statistics |
 | `buncker-fetch cache clean` | Remove old cached blobs |
 
@@ -411,6 +421,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines
 | [Contributing](CONTRIBUTING.md) | Dev setup, commit convention, branching, testing |
 | [Changelog](CHANGELOG.md) | Release history (Keep a Changelog + SemVer) |
 | [Security](SECURITY.md) | Vulnerability reporting policy |
+
+## Roadmap
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| Admin API authentication | Bearer token or mTLS on `/admin/*` for secure LAN access | Planned |
+| LAN client operations | Analyze, prepare, import from client machines via admin API (no SSH) | Planned |
 
 ## License
 
