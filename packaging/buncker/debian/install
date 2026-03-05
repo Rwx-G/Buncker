@@ -14,5 +14,4 @@ usr/lib/buncker/shared/oci.py
 usr/lib/buncker/shared/wordlist.py
 usr/lib/buncker/shared/exceptions.py
 usr/lib/buncker/shared/logging.py
-etc/buncker/config.json
 lib/systemd/system/buncker.service

@@ -16,11 +16,8 @@ case "$1" in
         install -d -o buncker -g buncker -m 0750 /var/lib/buncker
         install -d -o buncker -g buncker -m 0750 /var/log/buncker
 
-        # Ensure config directory permissions
-        chown root:buncker /etc/buncker
-        chmod 0750 /etc/buncker
-        chown root:buncker /etc/buncker/config.json
-        chmod 0640 /etc/buncker/config.json
+        # Create config directory (config.json is created by buncker setup)
+        install -d -o root -g buncker -m 0750 /etc/buncker
         ;;
 esac
 
