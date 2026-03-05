@@ -13,6 +13,7 @@ _DEFAULTS: dict = {
     "derived_key_check": "",
     "salt": "",
     "registries": {},
+    "transfer_path": "",
 }
 
 

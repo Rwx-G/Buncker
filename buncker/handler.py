@@ -323,7 +323,26 @@ class BunckerHandler(BaseHTTPRequestHandler):
             )
             return
 
-        if not analysis.missing_blobs:
+        # Collect unique external images for manifest fetching on online side
+        images = []
+        seen_images: set[str] = set()
+        for img in analysis.images:
+            if img.is_internal or img.is_private:
+                continue
+            key = f"{img.registry}/{img.repository}:{img.tag}"
+            if key in seen_images:
+                continue
+            seen_images.add(key)
+            images.append(
+                {
+                    "registry": img.registry,
+                    "repository": img.repository,
+                    "tag": img.tag,
+                    "platform": img.platform or "linux/amd64",
+                }
+            )
+
+        if not analysis.missing_blobs and not images:
             self._send_admin_error(409, "NO_MISSING", "no missing blobs to request")
             return
 
@@ -342,6 +361,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
             "buncker_version": __version__,
             "generated_at": datetime.now(tz=UTC).isoformat(),
             "source_id": source_id,
+            "images": images,
             "blobs": analysis.missing_blobs,
         }
 

@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import signal
+import subprocess
 import sys
 import threading
 import urllib.request
@@ -14,8 +15,23 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 
 from buncker.config import load_config, save_config
-from shared.crypto import derive_keys, generate_mnemonic
+from shared.crypto import derive_keys, generate_mnemonic, split_mnemonic
 from shared.logging import setup_logging
+
+# ANSI color codes
+_BOLD = "\033[1m"
+_GREEN = "\033[32m"
+_YELLOW = "\033[33m"
+_RED = "\033[31m"
+_DIM = "\033[2m"
+_RESET = "\033[0m"
+
+
+def _c(text: str, code: str) -> str:
+    """Colorize text if stdout is a TTY."""
+    if not sys.stdout.isatty():
+        return text
+    return f"{code}{text}{_RESET}"
 
 
 def main() -> None:
@@ -56,11 +72,43 @@ def main() -> None:
     )
 
     # generate-manifest
-    subparsers.add_parser("generate-manifest", help="Generate transfer request")
+    sub_gen = subparsers.add_parser(
+        "generate-manifest", help="Generate transfer request"
+    )
+    sub_gen.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Output directory for transfer request",
+    )
+
+    # prepare (analyze + generate-manifest in one step)
+    sub_prepare = subparsers.add_parser(
+        "prepare", help="Analyze Dockerfile and generate transfer request"
+    )
+    sub_prepare.add_argument("dockerfile", type=Path, help="Path to Dockerfile")
+    sub_prepare.add_argument(
+        "--build-arg",
+        action="append",
+        default=[],
+        help="Build argument (KEY=VALUE)",
+    )
+    sub_prepare.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Output directory for transfer request",
+    )
 
     # import
     sub_import = subparsers.add_parser("import", help="Import transfer response")
-    sub_import.add_argument("file", type=Path, help="Path to .tar.enc file")
+    sub_import.add_argument(
+        "file",
+        type=Path,
+        nargs="?",
+        default=None,
+        help="Path to .tar.enc file (auto-scans transfer_path if omitted)",
+    )
 
     # status
     subparsers.add_parser("status", help="Show registry status")
@@ -112,6 +160,8 @@ def main() -> None:
         _cmd_setup(args)
     elif args.command == "serve":
         _cmd_serve(args)
+    elif args.command == "prepare":
+        _cmd_prepare(args)
     elif args.command == "rotate-keys":
         _cmd_rotate_keys(args)
     elif args.command == "export-ca":
@@ -130,16 +180,37 @@ def _cmd_setup(args: argparse.Namespace) -> None:
 
     import base64
 
-    # Generate mnemonic and salt
+    # [1/4] Generate cryptographic keys
+    print(
+        f"{_c('[1/4]', _BOLD)} Generating cryptographic keys... ",
+        end="",
+        flush=True,
+    )
     mnemonic = generate_mnemonic()
-    salt = os.urandom(32)
+    mnemonic_12, salt = split_mnemonic(mnemonic)
+    mnemonic_hash = f"sha256:{hashlib.sha256(mnemonic_12.encode()).hexdigest()}"
+    print(_c("done", _GREEN))
 
-    # Compute mnemonic hash for config verification
-    mnemonic_hash = f"sha256:{hashlib.sha256(mnemonic.encode()).hexdigest()}"
-
-    # Determine store path
+    # [2/4] Initialize store
     store_path = str(args.store_path) if args.store_path else "/var/lib/buncker"
+    print(
+        f"{_c('[2/4]', _BOLD)} Initializing store...             ",
+        end="",
+        flush=True,
+    )
+    store_dir = Path(store_path)
+    store_dir.mkdir(parents=True, exist_ok=True)
+    from buncker.store import Store
 
+    Store(store_dir)
+    print(_c("done", _GREEN))
+
+    # [3/4] Save configuration
+    print(
+        f"{_c('[3/4]', _BOLD)} Saving configuration...           ",
+        end="",
+        flush=True,
+    )
     config = {
         "source_id": f"buncker-{os.urandom(4).hex()}",
         "bind": "0.0.0.0",
@@ -155,35 +226,136 @@ def _cmd_setup(args: argparse.Namespace) -> None:
         "gc": {"inactive_days_threshold": 90},
         "log_level": "INFO",
     }
-
-    # Save config
     save_config(config, config_path)
 
-    # Initialize store
-    store_dir = Path(store_path)
-    store_dir.mkdir(parents=True, exist_ok=True)
+    # Save mnemonic to env file for systemd
+    env_path = config_path.parent / "env"
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    env_path.write_text(f"BUNCKER_MNEMONIC={mnemonic}\n", encoding="utf-8")
+    import contextlib
 
-    from buncker.store import Store
+    with contextlib.suppress(OSError):
+        env_path.chmod(0o600)
+    print(_c("done", _GREEN))
 
-    Store(store_dir)
+    # [4/4] Enable and start daemon
+    print(
+        f"{_c('[4/4]', _BOLD)} Enabling and starting daemon...   ",
+        end="",
+        flush=True,
+    )
+    daemon_status = "active"
+    try:
+        subprocess.run(
+            ["systemctl", "enable", "--now", "buncker"],
+            check=True,
+            capture_output=True,
+        )
+        bind = config.get("bind", "0.0.0.0")
+        port = config.get("port", 5000)
+        daemon_status = f"active on {bind}:{port}"
+        print(_c("done", _GREEN))
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        daemon_status = "not started (systemctl unavailable or not root)"
+        print(_c("skipped", _YELLOW))
+        print(
+            f"  {_c('Warning:', _YELLOW)} Could not enable daemon. "
+            "Start manually with: sudo systemctl enable --now buncker"
+        )
 
     # Display mnemonic
-    print("Buncker initialized successfully.")
+    words = mnemonic.split()
+    line1 = " ".join(words[:8])
+    line2 = " ".join(words[8:])
+
+    sep = "=" * 60
     print()
-    print("IMPORTANT: Write down the following 12-word mnemonic.")
-    print("This is the ONLY time it will be displayed.")
-    print("You need it to start the daemon and for key recovery.")
+    print(_c(sep, _DIM))
     print()
-    print(f"  {mnemonic}")
+    print(f"  {_c('IMPORTANT', _BOLD)} - Write down your 16-word recovery mnemonic.")
+    print("  This is the ONLY time it will be displayed.")
     print()
-    print(f"Config: {config_path}")
-    print(f"Store:  {store_path}")
+    print(f"  {_c(line1, _BOLD + _YELLOW)}")
+    print(f"  {_c(line2, _BOLD + _YELLOW)}")
+    print()
+    print(f"  Config:  {config_path}")
+    print(f"  Store:   {store_path}")
+    print(f"  Daemon:  {daemon_status}")
+    print()
+    print(_c(sep, _DIM))
+
+
+def _cmd_prepare(args: argparse.Namespace) -> None:
+    """Analyze Dockerfile and generate transfer request in one step."""
+    config = load_config(args.config)
+    port = config.get("port", 5000)
+    base = f"http://localhost:{port}"
+
+    # Step 1: Analyze
+    dockerfile = args.dockerfile.resolve()
+    print(f"Analyzing {_c(str(dockerfile), _BOLD)}...")
+
+    build_args = {}
+    for ba in args.build_arg:
+        key, _, value = ba.partition("=")
+        build_args[key] = value
+
+    data = {"dockerfile": str(dockerfile)}
+    if build_args:
+        data["build_args"] = build_args
+
+    analysis = _admin_post(f"{base}/admin/analyze", data)
+    if "error" in analysis:
+        print(f"  {_c('Error:', _RED)} {analysis.get('message', analysis)}")
+        sys.exit(1)
+
+    images = analysis.get("images", [])
+    external = [img for img in images if not img.get("is_internal")]
+    missing_count = len(analysis.get("missing_blobs", []))
+
+    print(f"  Images: {_c(str(len(external)), _BOLD)}")
+    for img in external:
+        print(f"    {img.get('resolved', img.get('raw', ''))}")
+    print(f"  Missing blobs: {_c(str(missing_count), _BOLD)}")
+
+    # Step 2: Generate manifest
+    print()
+    print("Generating transfer request...")
+
+    result = _admin_post_raw(f"{base}/admin/generate-manifest", {})
+    if isinstance(result, dict) and "error" in result:
+        print(f"  {_c('Error:', _RED)} {result.get('message', result)}")
+        sys.exit(1)
+
+    if isinstance(result, bytes):
+        # Determine output path
+        output_dir = args.output or _resolve_transfer_path(config) or Path.cwd()
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        out_file = output_dir / "buncker-request.json.enc"
+        out_file.write_bytes(result)
+        size = len(result)
+        print(f"  Output: {_c(str(out_file), _BOLD)} ({size} B)")
+    else:
+        print(json.dumps(result, indent=2))
+        return
+
+    # Hint for next step
+    print()
+    print("Next: copy to online machine and run:")
+    print(f"  buncker-fetch fetch {out_file.name} --output /media/usb/")
+
+
+def _resolve_transfer_path(config: dict) -> Path | None:
+    """Return transfer_path from config if set, else None."""
+    tp = config.get("transfer_path", "")
+    if tp:
+        return Path(tp)
+    return None
 
 
 def _cmd_serve(args: argparse.Namespace) -> None:
     """Start the HTTP daemon."""
-    import base64
-
     config = load_config(args.config)
     setup_logging(
         level=config.get("log_level", "INFO"),
@@ -205,23 +377,24 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         print("Error: mnemonic cannot be empty")
         sys.exit(1)
 
-    # Verify mnemonic hash
+    # Split 16-word mnemonic into 12-word secret + salt
+    try:
+        mnemonic_12, salt = split_mnemonic(mnemonic)
+    except Exception as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
+
+    # Verify mnemonic hash (uses 12-word part)
     crypto_config = config.get("crypto", {})
     expected_hash = crypto_config.get("mnemonic_hash", "")
-    actual_hash = f"sha256:{hashlib.sha256(mnemonic.encode()).hexdigest()}"
+    actual_hash = f"sha256:{hashlib.sha256(mnemonic_12.encode()).hexdigest()}"
 
     if expected_hash and actual_hash != expected_hash:
         print("Error: mnemonic does not match config - wrong mnemonic")
         sys.exit(1)
 
-    # Derive keys
-    salt_b64 = crypto_config.get("salt", "")
-    if not salt_b64:
-        print("Error: no salt in config - run 'buncker setup' first")
-        sys.exit(1)
-
-    salt = base64.b64decode(salt_b64)
-    aes_key, hmac_key = derive_keys(mnemonic, salt)
+    # Derive keys from 12-word mnemonic + embedded salt
+    aes_key, hmac_key = derive_keys(mnemonic_12, salt)
 
     # Initialize store and server
     from buncker.server import BunckerServer
@@ -269,10 +442,10 @@ def _cmd_rotate_keys(args: argparse.Namespace) -> None:
     old_crypto["deprecated_at"] = datetime.now(tz=UTC).isoformat()
     old_crypto["grace_period_days"] = args.grace_period
 
-    # Generate new mnemonic and salt
+    # Generate new 16-word mnemonic (12 secret + 4 salt)
     mnemonic = generate_mnemonic()
-    salt = os.urandom(32)
-    mnemonic_hash = f"sha256:{hashlib.sha256(mnemonic.encode()).hexdigest()}"
+    mnemonic_12, salt = split_mnemonic(mnemonic)
+    mnemonic_hash = f"sha256:{hashlib.sha256(mnemonic_12.encode()).hexdigest()}"
 
     config["crypto"] = {
         "salt": base64.b64encode(salt).decode(),
@@ -284,7 +457,7 @@ def _cmd_rotate_keys(args: argparse.Namespace) -> None:
 
     print("Keys rotated successfully.")
     print()
-    print("IMPORTANT: Write down the following NEW 12-word mnemonic.")
+    print("IMPORTANT: Write down the following NEW 16-word mnemonic.")
     print("This is the ONLY time it will be displayed.")
     print()
     print(f"  {mnemonic}")
@@ -331,15 +504,43 @@ def _cmd_proxy(args: argparse.Namespace) -> None:
     elif args.command == "generate-manifest":
         result = _admin_post_raw(f"{base}/admin/generate-manifest", {})
         if isinstance(result, bytes):
-            # Save to file
-            filename = "buncker-request.json.enc"
-            Path(filename).write_bytes(result)
-            print(f"Transfer request saved to {filename}")
+            output_dir = (
+                getattr(args, "output", None)
+                or _resolve_transfer_path(config)
+                or Path.cwd()
+            )
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            out_file = output_dir / "buncker-request.json.enc"
+            out_file.write_bytes(result)
+            print(f"Transfer request saved to {out_file}")
         else:
             print(json.dumps(result, indent=2))
 
     elif args.command == "import":
-        file_data = args.file.read_bytes()
+        import_file = args.file
+        if import_file is None:
+            # Auto-scan transfer_path for newest *.tar.enc
+            tp = _resolve_transfer_path(config)
+            if tp is None:
+                print(
+                    "Error: no file specified and transfer_path not configured",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            candidates = sorted(
+                Path(tp).glob("*.tar.enc"), key=lambda p: p.stat().st_mtime
+            )
+            if not candidates:
+                print(
+                    f"Error: no *.tar.enc files found in {tp}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            import_file = candidates[-1]
+            print(f"Auto-detected: {import_file}")
+
+        file_data = import_file.read_bytes()
         result = _admin_post_binary(f"{base}/admin/import", file_data)
         print(json.dumps(result, indent=2))
 

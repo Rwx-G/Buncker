@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/python-%3E%3D3.11-3776AB.svg?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/platform-Debian%2FUbuntu-A81D33.svg?logo=debian&logoColor=white" alt="Platform">
   <img src="https://img.shields.io/badge/packaging-.deb-orange.svg" alt="Packaging">
-  <img src="https://img.shields.io/badge/status-v0.6.1-brightgreen.svg" alt="Status">
+  <img src="https://img.shields.io/badge/status-v0.7.0-brightgreen.svg" alt="Status">
 </p>
 
 ---
@@ -40,7 +40,7 @@ Nothing equivalent exists: [Hauler](https://github.com/hauler-dev/hauler) does b
 | **Delta sync** | Only missing layers are transferred, not entire images |
 | **Dockerfile resolver** | Static analysis of `FROM`, `ARG`, multi-stage, multi-arch |
 | **Encrypted transfers** | AES-256-GCM + HMAC-SHA256 on all USB files |
-| **BIP-39 mnemonic** | 12-word shared secret, no PKI to manage |
+| **BIP-39 mnemonic** | 16-word shared secret, no PKI to manage |
 | **OCI standard** | Local registry compatible with `docker pull`, no client changes |
 | **Full audit trail** | Every operation logged in structured JSON Lines |
 | **Zero exotic deps** | Python stdlib + `python3-cryptography` (apt) |
@@ -66,10 +66,10 @@ Download the latest `.deb` files from [GitHub Releases](https://github.com/Rwx-G
 
 ```bash
 # Offline machine
-sudo dpkg -i buncker_0.6.1_all.deb
+sudo dpkg -i buncker_0.7.0_all.deb
 
 # Online machine
-sudo dpkg -i buncker-fetch_0.6.1_all.deb
+sudo dpkg -i buncker-fetch_0.7.0_all.deb
 ```
 
 If dependencies are missing, fix them with:
@@ -100,23 +100,29 @@ sudo buncker setup
 Expected output:
 
 ```
-Buncker initialized successfully.
+[1/4] Generating cryptographic keys...  done
+[2/4] Initializing store...             done
+[3/4] Saving configuration...           done
+[4/4] Enabling and starting daemon...   done
 
-IMPORTANT: Write down the following 12-word mnemonic.
-This is the ONLY time it will be displayed.
-You need it to start the daemon and for key recovery.
+============================================================
 
-  abandon ability able about above absent absorb abstract absurd abuse access accident
+  IMPORTANT - Write down your 16-word recovery mnemonic.
+  This is the ONLY time it will be displayed.
 
-Config: /etc/buncker/config.json
-Store:  /var/lib/buncker
+  pride evoke tumble stool coach enact lazy ribbon
+  silent split orphan peace flavor broom render desk
+
+  Config:  /etc/buncker/config.json
+  Store:   /var/lib/buncker
+  Daemon:  active on 0.0.0.0:5000
+
+============================================================
 ```
 
-Start the daemon:
-
-```bash
-sudo systemctl enable --now buncker
-```
+Setup automatically enables and starts the daemon via systemd. The mnemonic
+is also saved to `/etc/buncker/env` (mode 0600) so the service can restart
+without manual re-entry.
 
 **2. Analyze a Dockerfile and generate a transfer request**
 
@@ -153,8 +159,8 @@ buncker-fetch pair
 Expected output:
 
 ```
-Enter the 12-word mnemonic (space-separated):
-> abandon ability able about above absent absorb abstract absurd abuse access accident
+Enter the 16-word mnemonic (space-separated):
+> pride evoke tumble stool coach enact lazy ribbon silent split orphan peace flavor broom render desk
   status: success
   message: Pairing successful
 ```
@@ -199,7 +205,55 @@ docker build -t myapp .     # works without internet
 |------|-------------|
 | Offline daemon | `/etc/buncker/config.json` |
 | Online CLI | `~/.buncker/config.json` |
-| Docker clients | `/etc/docker/certs.d/docker.io/hosts.toml` |
+| Docker clients | See [Docker Client Setup](#docker-client-setup) below |
+
+### Docker Client Setup
+
+Docker clients on the offline LAN need to pull images from the buncker
+registry instead of Docker Hub. There are two approaches:
+
+**Approach 1 - Explicit registry in Dockerfiles (simplest)**
+
+Reference the buncker host directly in your `FROM` instructions:
+
+```dockerfile
+FROM buncker-host:5000/library/alpine:3.19
+FROM buncker-host:5000/library/python:3.11-slim
+```
+
+Add the registry as insecure (HTTP) in `/etc/docker/daemon.json`:
+
+```json
+{
+  "insecure-registries": ["buncker-host:5000"]
+}
+```
+
+Restart Docker after editing: `sudo systemctl restart docker`
+
+This is the most reliable approach. Replace `buncker-host` with the
+actual hostname or IP of the buncker daemon on your offline LAN.
+
+**Approach 2 - Registry mirror (transparent, Docker 20.10+)**
+
+Configure Docker to use buncker as a pull-through mirror.
+Dockerfiles keep standard `FROM alpine:3.19` syntax.
+
+In `/etc/docker/daemon.json`:
+
+```json
+{
+  "registry-mirrors": ["http://buncker-host:5000"],
+  "insecure-registries": ["buncker-host:5000"]
+}
+```
+
+Restart Docker after editing: `sudo systemctl restart docker`
+
+With this setup, `docker pull alpine:3.19` checks buncker first.
+Note: registry mirrors only work for Docker Hub (`docker.io`) images.
+Images from other registries (ghcr.io, quay.io) still need explicit
+references as in Approach 1.
 
 ## Configuration Reference
 
@@ -218,6 +272,7 @@ docker build -t myapp .     # works without internet
 | `private_registries` | list | `[]` | Private registry patterns to skip |
 | `gc.inactive_days_threshold` | int | `90` | GC inactivity threshold in days |
 | `log_level` | string | `"INFO"` | Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
+| `transfer_path` | string | `""` | Default directory for transfer files (empty = cwd) |
 
 ### Online CLI (`~/.buncker/config.json`)
 
@@ -225,6 +280,7 @@ docker build -t myapp .     # works without internet
 |-------|------|-------------|
 | `salt` | string | Base64-encoded PBKDF2 salt (set by `buncker-fetch pair`) |
 | `derived_key_check` | string | Encrypted marker for mnemonic verification |
+| `transfer_path` | string | Default directory for transfer files (empty = cwd) |
 
 ## Command Reference
 
@@ -232,11 +288,12 @@ docker build -t myapp .     # works without internet
 
 | Command | Description |
 |---------|-------------|
-| `buncker setup` | Initialize: generate mnemonic, create config, init store |
+| `buncker setup` | Initialize: generate keys, create config, init store, start daemon |
 | `buncker serve` | Start the HTTP daemon (reads mnemonic from `BUNCKER_MNEMONIC` env or stdin) |
+| `buncker prepare <Dockerfile>` | Analyze + generate transfer request in one step |
 | `buncker analyze <Dockerfile>` | Analyze Dockerfile and identify missing blobs |
 | `buncker generate-manifest` | Generate an encrypted transfer request |
-| `buncker import <file.tar.enc>` | Import an encrypted transfer response |
+| `buncker import [file.tar.enc]` | Import an encrypted transfer response (auto-scans `transfer_path` if omitted) |
 | `buncker status` | Show registry status (blob count, store size) |
 | `buncker gc --report` | List inactive blobs eligible for garbage collection |
 | `buncker gc --execute` | Delete reported inactive blobs |
@@ -248,7 +305,8 @@ docker build -t myapp .     # works without internet
 | Flag | Description |
 |------|-------------|
 | `--config <path>` | Config file path (default: `/etc/buncker/config.json`) |
-| `--build-arg KEY=VALUE` | Build argument for `analyze` (repeatable) |
+| `--build-arg KEY=VALUE` | Build argument for `analyze` and `prepare` (repeatable) |
+| `--output <path>` | Output directory for `generate-manifest` and `prepare` |
 | `--inactive-days N` | GC inactivity threshold (default: 90) |
 | `--operator <name>` | Operator name for GC audit trail |
 | `--grace-period N` | Key rotation grace period in days (default: 30) |
@@ -257,9 +315,9 @@ docker build -t myapp .     # works without internet
 
 | Command | Description |
 |---------|-------------|
-| `buncker-fetch pair` | Enter 12-word mnemonic and derive encryption keys |
+| `buncker-fetch pair` | Enter 16-word mnemonic and derive encryption keys |
 | `buncker-fetch inspect <file.json.enc>` | Decrypt and display transfer request summary |
-| `buncker-fetch fetch <file.json.enc>` | Fetch missing blobs and build encrypted response |
+| `buncker-fetch fetch [file.json.enc]` | Fetch missing blobs and build encrypted response (auto-scans `transfer_path` if omitted) |
 | `buncker-fetch status` | Display cache statistics |
 | `buncker-fetch cache clean` | Remove old cached blobs |
 
@@ -281,7 +339,7 @@ Generate a new mnemonic when compromised or as periodic security practice:
 
 ```bash
 sudo buncker rotate-keys --grace-period 30
-# Write down the new 12-word mnemonic
+# Write down the new 16-word mnemonic
 # Restart daemon with new mnemonic
 sudo systemctl restart buncker
 # Re-pair online machine
@@ -332,7 +390,7 @@ sudo journalctl -u buncker -f
 |---------|-------|----------|
 | `dpkg: dependency problems` | Missing Python or cryptography | `sudo apt-get install -f` |
 | `Cannot connect to buncker daemon` | Daemon not running | `sudo systemctl start buncker` and check `journalctl -u buncker` |
-| `mnemonic does not match config` | Wrong mnemonic entered | Re-enter the correct 12 words from initial setup |
+| `mnemonic does not match config` | Wrong mnemonic entered | Re-enter the correct 16 words from initial setup |
 | `Mnemonic verification failed` on fetch | Mnemonic or salt mismatch | Re-run `buncker-fetch pair` with the correct mnemonic |
 | `buncker setup` fails with "Config already exists" | Previous setup detected | Back up and remove `/etc/buncker/config.json` to re-initialize |
 | Blobs not found after import | OCI store path mismatch | Verify `store_path` in config matches daemon working directory |
@@ -363,6 +421,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines
 | [Contributing](CONTRIBUTING.md) | Dev setup, commit convention, branching, testing |
 | [Changelog](CHANGELOG.md) | Release history (Keep a Changelog + SemVer) |
 | [Security](SECURITY.md) | Vulnerability reporting policy |
+
+## Roadmap
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| Admin API authentication | Bearer token or mTLS on `/admin/*` for secure LAN access | Planned |
+| LAN client operations | Analyze, prepare, import from client machines via admin API (no SSH) | Planned |
 
 ## License
 

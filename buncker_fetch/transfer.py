@@ -96,6 +96,7 @@ def build_response(
     source_id: str,
     output_dir: Path | None = None,
     deb_path: Path | None = None,
+    manifests: list[dict] | None = None,
 ) -> Path:
     """Build an encrypted transfer response (.tar.enc).
 
@@ -108,6 +109,7 @@ def build_response(
         source_id: Source buncker identifier.
         output_dir: Directory to write the response. Uses cwd if None.
         deb_path: Optional .deb file to include for auto-update.
+        manifests: Optional list of manifest dicts to include for offline caching.
 
     Returns:
         Path to the generated .tar.enc file.
@@ -154,6 +156,19 @@ def build_response(
         # ERRORS.json if any
         if errors:
             _add_string_to_tar(tar, "ERRORS.json", json.dumps(errors))
+
+        # Include manifests for offline caching
+        if manifests:
+            for m in manifests:
+                registry = m["registry"]
+                repository = m["repository"]
+                tag = m["tag"]
+                platform = m["platform"]
+                manifest_json = json.dumps(m["manifest"], indent=2)
+                manifest_path = (
+                    f"manifests/{registry}/{repository}/{tag}/{platform}.json"
+                )
+                _add_string_to_tar(tar, manifest_path, manifest_json)
 
         # Include .deb for auto-update if available
         if deb_path and deb_path.exists():

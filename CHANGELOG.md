@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-03-05
+
+### Added
+
+- Multi-container integration test environment (`tests/integration/`): 3 services (online, buncker-offline, client), 2 networks (bridge + internal), shared transfer volume simulating USB key
+- Step-by-step README walkthrough for the full air-gapped cycle (setup, pair, analyze, fetch, import, docker build)
+- 16-word mnemonic with embedded salt (12 secret + 4 salt words) for air-gapped pairing without separate salt exchange
+- OCI manifests included in transfer response - online side fetches manifests alongside blobs so offline can cache them on import
+- Docker client setup guide in README: explicit registry references and registry mirror approaches
+- `buncker setup` now auto-starts the daemon via `systemctl enable --now` and stores the mnemonic in `/etc/buncker/env` (mode 0600) for automatic service restarts
+- Colored CLI output for `buncker setup` with staged progress indicators (step 1/4 through 4/4)
+- `buncker prepare <Dockerfile>` command combining analyze + generate-manifest in a single step with colored summary output
+- Configurable `transfer_path` in both `buncker` and `buncker-fetch` configs for default transfer file directory
+- `buncker import` auto-scans `transfer_path` for newest `*.tar.enc` when no file argument is given
+- `buncker-fetch fetch` auto-scans `transfer_path` for newest `*.json.enc` when no file argument is given and writes response to `transfer_path` when no `--output` flag is given
+- `--output` flag on `buncker generate-manifest` to specify output directory
+- Roadmap section in README tracking planned features (admin API auth, LAN client operations)
+
+### Fixed
+
+- Thread pool initialization order in server: `_pool` created before `super().__init__()` to prevent `AttributeError` when port bind fails
+- .deb package no longer ships skeleton `config.json` that blocked `buncker setup`
+- `generate-manifest` now succeeds when images are detected but no blobs are cached yet (first-run scenario)
+- `buncker-fetch fetch` extracts blob digests from fetched manifests and downloads them automatically (no pre-existing manifest cache required)
+- Setup message corrected from "12-word" to "16-word" mnemonic
+
+### Changed
+
+- **BREAKING**: mnemonic is now 16 words instead of 12 (existing setups must re-run `buncker setup`)
+
 ## [0.6.1] - 2026-03-04
 
 ### Added
@@ -145,7 +175,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Rwx-G/Buncker/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/Rwx-G/Buncker/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Rwx-G/Buncker/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Rwx-G/Buncker/compare/v0.4.0...v0.5.0

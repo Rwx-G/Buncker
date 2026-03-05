@@ -5,14 +5,19 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from buncker_fetch.__main__ import main
 from buncker_fetch.config import save_config
-from shared.crypto import derive_keys, encrypt, generate_mnemonic, sign
+from shared.crypto import (
+    derive_keys,
+    encrypt,
+    generate_mnemonic,
+    sign,
+    split_mnemonic,
+)
 
 
 @pytest.fixture()
@@ -23,8 +28,8 @@ def mnemonic():
 @pytest.fixture()
 def config_with_keys(tmp_path, mnemonic):
     """Create a config file with valid salt and derived_key_check."""
-    salt = os.urandom(32)
-    aes_key, hmac_key = derive_keys(mnemonic, salt)
+    mnemonic_12, salt = split_mnemonic(mnemonic)
+    aes_key, hmac_key = derive_keys(mnemonic_12, salt)
 
     marker = b"buncker-pair-check"
     derived_key_check = base64.b64encode(encrypt(marker, aes_key)).decode()

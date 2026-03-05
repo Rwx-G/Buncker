@@ -1,6 +1,6 @@
 [project]
 name = "buncker"
-version = "0.6.1"
+version = "0.7.0"
 description = "Encrypted delta sync for air-gapped Docker builds"
 license = "Apache-2.0"
 requires-python = ">=3.11"
