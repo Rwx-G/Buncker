@@ -199,7 +199,55 @@ docker build -t myapp .     # works without internet
 |------|-------------|
 | Offline daemon | `/etc/buncker/config.json` |
 | Online CLI | `~/.buncker/config.json` |
-| Docker clients | `/etc/docker/certs.d/docker.io/hosts.toml` |
+| Docker clients | See [Docker Client Setup](#docker-client-setup) below |
+
+### Docker Client Setup
+
+Docker clients on the offline LAN need to pull images from the buncker
+registry instead of Docker Hub. There are two approaches:
+
+**Approach 1 - Explicit registry in Dockerfiles (simplest)**
+
+Reference the buncker host directly in your `FROM` instructions:
+
+```dockerfile
+FROM buncker-host:5000/library/alpine:3.19
+FROM buncker-host:5000/library/python:3.11-slim
+```
+
+Add the registry as insecure (HTTP) in `/etc/docker/daemon.json`:
+
+```json
+{
+  "insecure-registries": ["buncker-host:5000"]
+}
+```
+
+Restart Docker after editing: `sudo systemctl restart docker`
+
+This is the most reliable approach. Replace `buncker-host` with the
+actual hostname or IP of the buncker daemon on your offline LAN.
+
+**Approach 2 - Registry mirror (transparent, Docker 20.10+)**
+
+Configure Docker to use buncker as a pull-through mirror.
+Dockerfiles keep standard `FROM alpine:3.19` syntax.
+
+In `/etc/docker/daemon.json`:
+
+```json
+{
+  "registry-mirrors": ["http://buncker-host:5000"],
+  "insecure-registries": ["buncker-host:5000"]
+}
+```
+
+Restart Docker after editing: `sudo systemctl restart docker`
+
+With this setup, `docker pull alpine:3.19` checks buncker first.
+Note: registry mirrors only work for Docker Hub (`docker.io`) images.
+Images from other registries (ghcr.io, quay.io) still need explicit
+references as in Approach 1.
 
 ## Configuration Reference
 
