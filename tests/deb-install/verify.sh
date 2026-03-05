@@ -78,7 +78,8 @@ else
 fi
 
 # Extract mnemonic from setup output (displayed on 2 lines of 8 words)
-MNEMONIC=$(echo "$SETUP_OUTPUT" | grep -E '^\s+\w+' | head -2 | xargs)
+# Mnemonic lines contain only lowercase words (no punctuation, no colons, no caps)
+MNEMONIC=$(echo "$SETUP_OUTPUT" | grep -E '^\s+[a-z]+ [a-z]+' | head -2 | xargs)
 WORD_COUNT=$(echo "$MNEMONIC" | wc -w)
 
 if [ "$WORD_COUNT" -eq 16 ]; then
