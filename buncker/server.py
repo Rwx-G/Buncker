@@ -29,8 +29,8 @@ class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
         *,
         max_workers: int = 16,
     ) -> None:
-        super().__init__(server_address, handler_class)
         self._pool = ThreadPoolExecutor(max_workers=max_workers)
+        super().__init__(server_address, handler_class)
 
     def process_request(self, request, client_address) -> None:
         """Submit request processing to the bounded thread pool."""
