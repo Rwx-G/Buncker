@@ -209,11 +209,11 @@ class TestServe:
     def test_serve_wrong_mnemonic_exits(self, tmp_path):
         import base64
 
-        from shared.crypto import generate_mnemonic
+        from shared.crypto import generate_mnemonic, split_mnemonic
 
         mnemonic = generate_mnemonic()
-        salt = os.urandom(32)
-        mnemonic_hash = f"sha256:{hashlib.sha256(mnemonic.encode()).hexdigest()}"
+        mnemonic_12, salt = split_mnemonic(mnemonic)
+        mnemonic_hash = f"sha256:{hashlib.sha256(mnemonic_12.encode()).hexdigest()}"
 
         config_path = tmp_path / "config.json"
         config_path.write_text(
@@ -256,11 +256,11 @@ class TestSignalHandling:
     def test_sigterm_stops_server(self, tmp_path):
         import base64
 
-        from shared.crypto import generate_mnemonic
+        from shared.crypto import generate_mnemonic, split_mnemonic
 
         mnemonic = generate_mnemonic()
-        salt = os.urandom(32)
-        mnemonic_hash = f"sha256:{hashlib.sha256(mnemonic.encode()).hexdigest()}"
+        mnemonic_12, salt = split_mnemonic(mnemonic)
+        mnemonic_hash = f"sha256:{hashlib.sha256(mnemonic_12.encode()).hexdigest()}"
 
         config_path = tmp_path / "config.json"
         store_path = tmp_path / "store"

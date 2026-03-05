@@ -70,9 +70,10 @@ class TestBunckerDeb:
         assert "./usr/lib/buncker/shared/crypto.py" in contents
         assert "./usr/lib/buncker/shared/oci.py" in contents
 
-    def test_contains_config(self, built_debs):
+    def test_no_skeleton_config(self, built_debs):
+        """Config is created by buncker setup, not shipped in the .deb."""
         contents = _deb_contents(built_debs["buncker"])
-        assert "./etc/buncker/config.json" in contents
+        assert "./etc/buncker/config.json" not in contents
 
     def test_contains_systemd_service(self, built_debs):
         contents = _deb_contents(built_debs["buncker"])
