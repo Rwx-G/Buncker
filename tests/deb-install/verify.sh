@@ -42,8 +42,7 @@ check "buncker-fetch shared dir" test -d /usr/lib/buncker-fetch/shared
 echo ""
 echo "[config]"
 check "config dir exists"     test -d /etc/buncker
-check "config.json exists"    test -f /etc/buncker/config.json
-check "config.json is valid JSON" python3 -c "import json; json.load(open('/etc/buncker/config.json'))"
+# config.json is created by buncker setup, not shipped in the .deb
 
 # --- Systemd ---
 echo ""
@@ -78,15 +77,15 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-# Extract mnemonic from setup output
-MNEMONIC=$(echo "$SETUP_OUTPUT" | grep -E '^\s+\w+' | head -1 | xargs)
+# Extract mnemonic from setup output (displayed on 2 lines of 8 words)
+MNEMONIC=$(echo "$SETUP_OUTPUT" | grep -E '^\s+\w+' | head -2 | xargs)
 WORD_COUNT=$(echo "$MNEMONIC" | wc -w)
 
-if [ "$WORD_COUNT" -eq 12 ]; then
-    echo "  PASS  setup generates 12-word mnemonic"
+if [ "$WORD_COUNT" -eq 16 ]; then
+    echo "  PASS  setup generates 16-word mnemonic"
     PASS=$((PASS + 1))
 else
-    echo "  FAIL  setup generates 12-word mnemonic (got $WORD_COUNT words)"
+    echo "  FAIL  setup generates 16-word mnemonic (got $WORD_COUNT words)"
     FAIL=$((FAIL + 1))
 fi
 
