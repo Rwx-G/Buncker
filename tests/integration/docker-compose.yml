@@ -1,0 +1,66 @@
+# Integration test environment - Air-gapped Docker simulation
+#
+# Architecture:
+#   online  (bridge network, internet access)  -> fetches from Docker Hub
+#   buncker-offline (internal network only)     -> OCI registry on :5000
+#   client  (internal network + transfer vol)   -> docker build
+#
+# Usage:
+#   make build-deb
+#   cd tests/integration
+#   docker compose up -d --build
+#
+# SSH credentials: root / buncker
+
+services:
+  online:
+    build:
+      context: ../../
+      dockerfile: tests/integration/online/Dockerfile
+    hostname: online
+    ports:
+      - "2201:22"
+    volumes:
+      - transfer:/transfer
+    networks:
+      - online-net
+
+  buncker-offline:
+    build:
+      context: ../../
+      dockerfile: tests/integration/offline/Dockerfile
+    hostname: buncker-offline
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "2202:22"
+    networks:
+      - offline-net
+      - mgmt
+
+  client:
+    build:
+      context: ../../
+      dockerfile: tests/integration/client/Dockerfile
+    hostname: client
+    privileged: true
+    ports:
+      - "2203:22"
+    volumes:
+      - transfer:/transfer
+    networks:
+      - offline-net
+      - mgmt
+
+networks:
+  online-net:
+    driver: bridge
+  offline-net:
+    internal: true
+  mgmt:
+    # Host-only bridge for SSH access to offline containers.
+    # Does not grant internet - containers have no default route on this network.
+    driver: bridge
+
+volumes:
+  transfer:
