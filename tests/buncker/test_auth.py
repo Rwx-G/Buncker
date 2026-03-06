@@ -488,6 +488,192 @@ class TestAuthIntegration:
             srv.stop()
 
 
+class TestApiShowCommand:
+    """Tests for api-show CLI command (Story 6.4)."""
+
+    def _setup_with_tokens(self, tmp_path):
+        """Create config + tokens for testing."""
+        config_path = tmp_path / "config.json"
+        store_path = tmp_path / "store"
+        with mock.patch(
+            "sys.argv",
+            [
+                "buncker", "--config", str(config_path),
+                "setup", "--store-path", str(store_path),
+            ],
+        ):
+            from buncker.__main__ import main
+            main()
+        # Run api-setup
+        with mock.patch(
+            "sys.argv",
+            ["buncker", "--config", str(config_path), "api-setup"],
+        ):
+            main()
+        return config_path
+
+    def test_api_show_readonly(self, tmp_path, capsys):
+        config_path = self._setup_with_tokens(tmp_path)
+        tokens = json.loads((config_path.parent / "api-tokens.json").read_text())
+
+        capsys.readouterr()  # Clear prior output
+        with mock.patch(
+            "sys.argv",
+            ["buncker", "--config", str(config_path), "api-show", "readonly"],
+        ):
+            from buncker.__main__ import main
+            main()
+
+        output = capsys.readouterr().out.strip()
+        assert output == tokens["readonly"]
+
+    def test_api_show_admin(self, tmp_path, capsys):
+        config_path = self._setup_with_tokens(tmp_path)
+        tokens = json.loads((config_path.parent / "api-tokens.json").read_text())
+
+        capsys.readouterr()  # Clear prior output
+        with mock.patch(
+            "sys.argv",
+            ["buncker", "--config", str(config_path), "api-show", "admin"],
+        ):
+            from buncker.__main__ import main
+            main()
+
+        output = capsys.readouterr().out.strip()
+        assert output == tokens["admin"]
+
+    def test_api_show_without_setup_fails(self, tmp_path):
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({
+            "port": 5000, "max_workers": 1,
+            "store_path": str(tmp_path), "log_level": "INFO",
+        }))
+        with mock.patch(
+            "sys.argv",
+            ["buncker", "--config", str(config_path), "api-show", "readonly"],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                from buncker.__main__ import main
+                main()
+            assert exc_info.value.code == 1
+
+
+class TestApiResetCommand:
+    """Tests for api-reset CLI command (Story 6.4)."""
+
+    def _setup_with_tokens(self, tmp_path):
+        config_path = tmp_path / "config.json"
+        store_path = tmp_path / "store"
+        with mock.patch(
+            "sys.argv",
+            [
+                "buncker", "--config", str(config_path),
+                "setup", "--store-path", str(store_path),
+            ],
+        ):
+            from buncker.__main__ import main
+            main()
+        with mock.patch(
+            "sys.argv",
+            ["buncker", "--config", str(config_path), "api-setup"],
+        ):
+            main()
+        return config_path
+
+    def test_api_reset_readonly_changes_token(self, tmp_path):
+        config_path = self._setup_with_tokens(tmp_path)
+        tokens_path = config_path.parent / "api-tokens.json"
+        old_tokens = json.loads(tokens_path.read_text())
+
+        with mock.patch(
+            "sys.argv",
+            ["buncker", "--config", str(config_path), "api-reset", "readonly"],
+        ):
+            from buncker.__main__ import main
+            main()
+
+        new_tokens = json.loads(tokens_path.read_text())
+        assert new_tokens["readonly"] != old_tokens["readonly"]
+        assert new_tokens["admin"] == old_tokens["admin"]  # Unchanged
+
+    def test_api_reset_admin_changes_token(self, tmp_path):
+        config_path = self._setup_with_tokens(tmp_path)
+        tokens_path = config_path.parent / "api-tokens.json"
+        old_tokens = json.loads(tokens_path.read_text())
+
+        with mock.patch(
+            "sys.argv",
+            ["buncker", "--config", str(config_path), "api-reset", "admin"],
+        ):
+            from buncker.__main__ import main
+            main()
+
+        new_tokens = json.loads(tokens_path.read_text())
+        assert new_tokens["admin"] != old_tokens["admin"]
+        assert new_tokens["readonly"] == old_tokens["readonly"]  # Unchanged
+
+    def test_api_reset_without_setup_fails(self, tmp_path):
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({
+            "port": 5000, "max_workers": 1,
+            "store_path": str(tmp_path), "log_level": "INFO",
+        }))
+        with mock.patch(
+            "sys.argv",
+            ["buncker", "--config", str(config_path), "api-reset", "admin"],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                from buncker.__main__ import main
+                main()
+            assert exc_info.value.code == 1
+
+    def test_old_token_rejected_after_reset(self, tmp_path):
+        """Integration: reset admin token, old one should fail auth."""
+        config_path = self._setup_with_tokens(tmp_path)
+        tokens_path = config_path.parent / "api-tokens.json"
+        old_tokens = json.loads(tokens_path.read_text())
+
+        # Reset
+        with mock.patch(
+            "sys.argv",
+            ["buncker", "--config", str(config_path), "api-reset", "admin"],
+        ):
+            from buncker.__main__ import main
+            main()
+
+        new_tokens = json.loads(tokens_path.read_text())
+
+        # Start server with new tokens
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(
+            bind="127.0.0.1", port=0, store=store,
+            source_id="test",
+            api_tokens=new_tokens, api_enabled=True,
+        )
+        srv.start()
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/status"
+            # Old token should fail
+            req = urllib.request.Request(
+                url, headers={"Authorization": f"Bearer {old_tokens['admin']}"}
+            )
+            with pytest.raises(urllib.error.HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 401
+
+            # New token should work
+            req2 = urllib.request.Request(
+                url, headers={"Authorization": f"Bearer {new_tokens['admin']}"}
+            )
+            resp = urllib.request.urlopen(req2)
+            assert resp.status == 200
+        finally:
+            srv.stop()
+
+
 class TestAuditTrail:
     """Tests for audit trail enrichment (Story 6.3)."""
 

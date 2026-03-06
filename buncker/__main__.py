@@ -158,6 +158,22 @@ def main() -> None:
         "--key", type=Path, default=None, help="Path to TLS private key"
     )
 
+    # api-show
+    sub_api_show = subparsers.add_parser("api-show", help="Display an API token")
+    sub_api_show.add_argument(
+        "token_type",
+        choices=["readonly", "admin"],
+        help="Token type to display",
+    )
+
+    # api-reset
+    sub_api_reset = subparsers.add_parser("api-reset", help="Regenerate an API token")
+    sub_api_reset.add_argument(
+        "token_type",
+        choices=["readonly", "admin"],
+        help="Token type to regenerate",
+    )
+
     # export-ca
     subparsers.add_parser("export-ca", help="Export CA certificate")
 
@@ -179,6 +195,10 @@ def main() -> None:
         _cmd_export_ca(args)
     elif args.command == "api-setup":
         _cmd_api_setup(args)
+    elif args.command == "api-show":
+        _cmd_api_show(args)
+    elif args.command == "api-reset":
+        _cmd_api_reset(args)
     else:
         _cmd_proxy(args)
 
@@ -394,6 +414,51 @@ def _cmd_api_setup(args: argparse.Namespace) -> None:
     print("    sudo systemctl restart buncker")
     print()
     print(_c(sep, _DIM))
+
+
+def _cmd_api_show(args: argparse.Namespace) -> None:
+    """Display an API token."""
+    config_path = args.config or Path("/etc/buncker/config.json")
+    tokens_path = config_path.parent / "api-tokens.json"
+
+    from buncker.auth import load_api_tokens
+
+    tokens = load_api_tokens(tokens_path)
+    if tokens is None:
+        print(f"{_c('Error:', _RED)} API tokens not found at {tokens_path}")
+        print("Run 'buncker api-setup' first.")
+        sys.exit(1)
+
+    print(tokens[args.token_type])
+
+
+def _cmd_api_reset(args: argparse.Namespace) -> None:
+    """Regenerate an API token."""
+    import logging
+
+    config_path = args.config or Path("/etc/buncker/config.json")
+    tokens_path = config_path.parent / "api-tokens.json"
+
+    from buncker.auth import load_api_tokens, save_api_tokens
+
+    tokens = load_api_tokens(tokens_path)
+    if tokens is None:
+        print(f"{_c('Error:', _RED)} API tokens not found at {tokens_path}")
+        print("Run 'buncker api-setup' first.")
+        sys.exit(1)
+
+    import secrets
+
+    tokens[args.token_type] = secrets.token_hex(32)
+    save_api_tokens(tokens, tokens_path)
+
+    _log = logging.getLogger("buncker.auth")
+    _log.info("api_token_reset", extra={"token_type": args.token_type})
+
+    print(f"New {args.token_type} token: {tokens[args.token_type]}")
+    print()
+    print("The old token is now invalid.")
+    print("Restart the daemon to apply: sudo systemctl restart buncker")
 
 
 def _cmd_prepare(args: argparse.Namespace) -> None:
