@@ -295,23 +295,52 @@ class BunckerHandler(BaseHTTPRequestHandler):
     # Admin API endpoints
     # ------------------------------------------------------------------
 
+    def _is_localhost(self) -> bool:
+        """Check if the request comes from localhost."""
+        client_ip = self.client_address[0]
+        return client_ip in ("127.0.0.1", "::1", "localhost")
+
     def _handle_admin_analyze(self):
         """POST /admin/analyze - Analyze a Dockerfile."""
         body = self._read_json_body()
         if body is None:
             return
 
+        dockerfile_content = body.get("dockerfile_content")
         dockerfile = body.get("dockerfile")
-        if not dockerfile:
-            self._send_admin_error(400, "MISSING_FIELD", "dockerfile field required")
-            return
-
-        # Path traversal prevention - reject paths with .. components
-        if ".." in Path(dockerfile).parts:
-            self._send_admin_error(400, "INVALID_PATH", "path traversal not allowed")
-            return
-
         build_args = body.get("build_args", {})
+
+        if dockerfile_content:
+            # Content mode: write to temp file
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".Dockerfile", delete=False, encoding="utf-8"
+            ) as tmp:
+                tmp.write(dockerfile_content)
+                dockerfile_path = Path(tmp.name)
+        elif dockerfile:
+            # Path mode: localhost only
+            if not self._is_localhost():
+                self._send_admin_error(
+                    400,
+                    "PATH_NOT_ALLOWED",
+                    "Path-based analysis is only available from localhost. "
+                    "Send dockerfile_content instead.",
+                )
+                return
+
+            # Path traversal prevention
+            if ".." in Path(dockerfile).parts:
+                self._send_admin_error(400, "INVALID_PATH", "path traversal not allowed")
+                return
+            dockerfile_path = Path(dockerfile)
+        else:
+            self._send_admin_error(
+                400, "MISSING_FIELD", "dockerfile or dockerfile_content field required"
+            )
+            return
+
         store = self._get_store()
 
         try:
@@ -319,7 +348,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
             from buncker.resolver import resolve_dockerfile
 
             result = resolve_dockerfile(
-                Path(dockerfile),
+                dockerfile_path,
                 build_args,
                 store=store,
                 registry_client=ManifestCache(store.path),
@@ -330,6 +359,10 @@ class BunckerHandler(BaseHTTPRequestHandler):
         except Exception as e:
             self._send_admin_error(500, "INTERNAL_ERROR", str(e))
             return
+        finally:
+            # Clean up temp file from content mode
+            if dockerfile_content:
+                dockerfile_path.unlink(missing_ok=True)
 
         # Store analysis result for generate-manifest
         self._server_ref._last_analysis = result
