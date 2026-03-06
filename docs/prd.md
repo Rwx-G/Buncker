@@ -1,6 +1,6 @@
 # Buncker - Product Requirements Document (PRD)
 
-> Version: 1.0 | Date: 2026-03-04 | Author: Romain G.
+> Version: 2.0 | Date: 2026-03-06 | Author: Romain G.
 
 ---
 
@@ -54,6 +54,7 @@ Buncker is the only tool combining Dockerfile resolution + delta sync + encrypti
 | 2026-03-04 | 1.0 | Initial PRD from brainstorm + architecture | Romain G. |
 | 2026-03-04 | 1.1 | Added persona, competitive analysis, success metrics, out-of-scope, license | Romain G. |
 | 2026-03-04 | 1.2 | Translated to English (public repo) | Romain G. |
+| 2026-03-06 | 2.0 | Added Epic 6: Admin API Authentication & LAN Client Operations | Romain G. |
 
 ---
 
@@ -72,16 +73,26 @@ Buncker is the only tool combining Dockerfile resolution + delta sync + encrypti
 - GitHub Actions CI (lint + test + build .deb)
 - Documentation (README, CONTRIBUTING, LICENSE Apache 2.0)
 
-### Out of Scope (V2+)
+### In Scope (V2 - Admin API Auth & LAN Client Operations)
 
-- **Cosign / supply chain signatures** - V2: optional `--verify-signature` flag on buncker-fetch
-- **Multi-registry offline sync** - V2: shared store via NFS/CIFS (filesystem config). V3: active replication
-- **RPM / tarball packaging** - V2 if community demand (Fedora, RHEL)
+- Optional Bearer token authentication on `/admin/*` endpoints via `buncker api-setup`
+- Two access levels: read-only (status, logs, gc report) and admin (analyze, generate-manifest, import, gc execute)
+- TLS activation (operator-provided certificate or auto-signed) mandatory when auth is enabled
+- Token management commands (`api-show`, `api-reset`)
+- Remote Dockerfile analysis via content upload (curl)
+- Streaming import via PUT with resume support (`Content-Range`) and pre-decryption checksum (`X-Buncker-Checksum`)
+- Enriched audit trail with `client_ip`, `auth_level`, `user_agent` on all API requests
+
+### Out of Scope (V3+)
+
+- **Cosign / supply chain signatures** - optional `--verify-signature` flag on buncker-fetch
+- **Multi-registry offline sync** - shared store via NFS/CIFS (filesystem config), later active replication
+- **RPM / tarball packaging** - if community demand (Fedora, RHEL)
 - **pip / PyPI packaging** - Not planned (contradicts zero-pip philosophy)
 - **Web interface / dashboard** - Not planned. CLI + HTTP API suffice
 - **External monitoring** (Prometheus, Grafana) - Not planned. Audit trail logs cover traceability
-- **Helm charts / Kubernetes manifests support** - V1 = Docker images only
-- **Windows / macOS support** - V1 = Debian/Ubuntu only
+- **Helm charts / Kubernetes manifests support** - Docker images only
+- **Windows / macOS support** - Debian/Ubuntu only
 - **Daemon auto-update** - The .deb can be included in response.tar.enc but installation remains manual
 
 ---
@@ -106,6 +117,16 @@ Buncker is the only tool combining Dockerfile resolution + delta sync + encrypti
 - **FR14:** buncker-fetch supports inspection of a request.json.enc without downloading (inspect command)
 - **FR15:** The request.json.enc includes the buncker version; buncker-fetch includes the updated .deb in response.tar.enc if a newer version exists
 - **FR16:** The offline daemon NEVER attempts an external network connection. A missing blob = 404 error, no fallback
+- **FR17:** `buncker api-setup` generates two Bearer tokens (read-only and admin), activates TLS, and persists tokens in a restricted file (mode 0600)
+- **FR18:** The daemon validates Bearer tokens on `/admin/*` endpoints with two access levels: read-only (`status`, `logs`, `gc/report`) and admin (`analyze`, `generate-manifest`, `import`, `gc/execute`)
+- **FR19:** `/v2/*` OCI Distribution endpoints remain unauthenticated regardless of auth configuration, so Docker clients can pull without token management
+- **FR20:** `POST /admin/analyze` accepts Dockerfile content in the request body for remote clients; path-based analysis remains available for localhost requests only
+- **FR21:** `PUT /admin/import` supports streaming upload of `response.tar.enc` with chunked write-to-disk and resume via `Content-Range` headers (`curl -C -`)
+- **FR22:** The daemon verifies a `X-Buncker-Checksum: sha256:...` header on uploaded files before attempting decryption, to reject corrupted uploads early
+- **FR23:** `buncker api-show readonly|admin` re-displays the specified token; `buncker api-reset readonly|admin` regenerates it and invalidates the previous one
+- **FR24:** `buncker api-setup` activates TLS: accepts an operator-provided certificate (`--cert`, `--key`) or generates an auto-signed certificate with an explicit security warning. Reuses the existing `buncker export-ca` mechanism
+- **FR25:** All API log entries include `client_ip`, `auth_level` (`admin`, `readonly`, `local`, `rejected`), and `user_agent` fields
+- **FR26:** Failed authentication attempts (invalid or missing token) are logged with `auth_level: rejected` and do not reveal whether the token was close to valid
 
 ### Non Functional
 
@@ -116,9 +137,12 @@ Buncker is the only tool combining Dockerfile resolution + delta sync + encrypti
 - **NFR5:** Error messages are actionable: what failed + context + what to do
 - **NFR6:** The daemon supports N simultaneous build clients via bounded ThreadPoolExecutor (max_workers configurable, default 16)
 - **NFR7:** Complete audit trail: every operation is logged in JSON Lines with timestamp, event, context. Logs NEVER contain secrets (mnemonic, keys, tokens)
-- **NFR8:** TLS optional and configurable on the internal LAN. TLS mandatory for buncker-fetch to public registries (native HTTPS)
+- **NFR8:** TLS optional and configurable on the internal LAN. TLS mandatory for buncker-fetch to public registries (native HTTPS). TLS mandatory when API authentication is enabled
 - **NFR9:** The project is open source on GitHub with CI (GitHub Actions: ruff lint + pytest tests + .deb build)
 - **NFR10:** Test coverage: 80% minimum overall, 100% on the crypto module
+- **NFR11:** Bearer tokens are cryptographically random (256-bit, `secrets.token_hex(32)`) and stored with restricted file permissions (0600)
+- **NFR12:** Streaming import handles files up to multiple GB without loading them entirely in memory (chunked read/write to disk)
+- **NFR13:** The daemon refuses to start with API authentication enabled and TLS disabled, preventing token transmission in cleartext
 
 ---
 
@@ -185,6 +209,9 @@ Implement the fetcher (auth discovery, download, cache), transfer (request decry
 
 ### Epic 5 - Packaging, E2E & Release
 Build .deb packages, run e2e tests for the full cycle, document the project, produce first GitHub release.
+
+### Epic 6 - Admin API Authentication & LAN Client Operations
+Secure the admin API with Bearer token authentication and TLS, then enable LAN clients to perform registry operations (analyze, generate-manifest, import) remotely via curl. Optional setup via `buncker api-setup` - installations using local-only access remain unchanged.
 
 ---
 
@@ -522,6 +549,123 @@ so that I can understand, install, and contribute to Buncker.
 5. Git branching documented: main + feature branches + version tags
 6. First tag v1.0.0 + GitHub Release with .deb assets
 7. CHANGELOG.md initialized
+
+---
+
+### Epic 6 - Admin API Authentication & LAN Client Operations
+
+**Goal:** Secure the admin API with optional Bearer token authentication and TLS, then enable LAN clients to perform all registry operations remotely via curl. At the end of this epic, an operator can run `buncker api-setup` to activate authentication and TLS, and LAN clients can analyze Dockerfiles, generate transfer manifests, and import responses using curl with Bearer tokens. Installations without `api-setup` remain unchanged (local HTTP, no auth).
+
+#### Story 6.1 - Token Generation & Storage
+
+As an **operator**,
+I want `buncker api-setup` to generate authentication tokens and activate TLS,
+so that I can securely open the admin API to LAN clients.
+
+**Acceptance Criteria:**
+1. `buncker api-setup` generates two cryptographically random Bearer tokens (256-bit via `secrets.token_hex(32)`): one read-only, one admin
+2. Tokens are stored in `/etc/buncker/api-tokens.json` with file permissions 0600
+3. `api-setup` prompts for a TLS certificate (`--cert`, `--key` flags) or generates an auto-signed certificate with an explicit security warning
+4. TLS is activated on the daemon (HTTPS on same port 5000)
+5. The existing `buncker export-ca` mechanism is reused for auto-signed certificates
+6. Config is updated with `api.enabled: true` and `tls: true`
+7. The daemon refuses to start if `api.enabled: true` and `tls: false`
+8. Both tokens are displayed once at setup, clearly labeled (read-only vs admin)
+9. Tests: token file created with correct permissions, config updated, TLS activated
+
+#### Story 6.2 - Auth Middleware
+
+As a **daemon**,
+I want to validate Bearer tokens on admin endpoints,
+so that only authorized clients can access registry operations.
+
+**Acceptance Criteria:**
+1. When `api.enabled: true`, all `/admin/*` requests must include `Authorization: Bearer <token>`
+2. Read-only token grants access to: `GET /admin/status`, `GET /admin/logs`, `GET /admin/gc/report`
+3. Admin token grants access to all `/admin/*` endpoints
+4. `/v2/*` OCI endpoints remain unauthenticated regardless of auth configuration
+5. Missing or invalid token returns 401 Unauthorized with a JSON error body
+6. Read-only token on an admin-only endpoint returns 403 Forbidden
+7. Token comparison uses constant-time comparison (`hmac.compare_digest`)
+8. When `api.enabled: false` (no `api-setup` run), all endpoints behave as before (no auth)
+9. Tests: valid RO token on RO endpoint, valid admin token on admin endpoint, RO token on admin endpoint rejected, invalid token rejected, no auth when disabled
+
+#### Story 6.3 - Audit Trail Enrichment
+
+As an **operator**,
+I want to see who accessed the API and from where,
+so that I have full traceability of remote operations.
+
+**Acceptance Criteria:**
+1. All API log entries include `client_ip` (source IP of the request)
+2. All API log entries include `auth_level`: `admin`, `readonly`, `local`, or `rejected`
+3. All API log entries include `user_agent` (User-Agent header value)
+4. Local CLI requests (via localhost) are logged with `auth_level: local`
+5. Failed authentication attempts are logged with `auth_level: rejected`, `client_ip`, and `user_agent`
+6. No token values are ever logged (existing NFR7 principle)
+7. Tests: verify log entries contain new fields for each auth level scenario
+
+#### Story 6.4 - Token Management Commands
+
+As an **operator**,
+I want to view and regenerate API tokens after initial setup,
+so that I can manage access without re-running full setup.
+
+**Acceptance Criteria:**
+1. `buncker api-show readonly` displays the current read-only token
+2. `buncker api-show admin` displays the current admin token
+3. `buncker api-reset readonly` generates a new read-only token, invalidates the previous one, and displays the new token
+4. `buncker api-reset admin` generates a new admin token, invalidates the previous one, and displays the new token
+5. All commands are local-only (CLI, not exposed via HTTP)
+6. Token reset is logged as an audit event (`api_token_reset` with token type)
+7. Tests: show displays correct token, reset changes token, old token rejected after reset
+
+#### Story 6.5 - Remote Dockerfile Analysis
+
+As a **LAN client operator**,
+I want to send a Dockerfile to the daemon for analysis via curl,
+so that I can identify missing blobs without being on the buncker machine.
+
+**Acceptance Criteria:**
+1. `POST /admin/analyze` accepts `dockerfile_content` (string) in the JSON body for remote clients
+2. `POST /admin/analyze` continues to accept `dockerfile_path` (string) for localhost requests only
+3. If a remote request sends `dockerfile_path`, the daemon returns 400 with an explicit error: "Path-based analysis is only available from localhost. Send dockerfile_content instead."
+4. `build_args` field works identically for both content and path modes
+5. `POST /admin/generate-manifest` returns the encrypted `.json.enc` file directly in the response body (Content-Type: application/octet-stream) so the client can `curl -o request.json.enc`
+6. Tests: remote with content, remote with path rejected, localhost with path OK, generate-manifest downloads file
+
+#### Story 6.6 - Streaming Import via PUT
+
+As a **LAN client operator**,
+I want to upload a response.tar.enc to the daemon via curl,
+so that I can import blobs without physical access to the buncker machine.
+
+**Acceptance Criteria:**
+1. `PUT /admin/import` accepts a streaming upload of `response.tar.enc` (body = raw file content)
+2. The daemon writes the uploaded file to disk in chunks (never loads entirely in memory)
+3. `X-Buncker-Checksum: sha256:<hex>` header is required; the daemon verifies the checksum against the received file before attempting decryption
+4. Checksum mismatch returns 400 with error: "Upload integrity check failed"
+5. Resume support: the daemon accepts `Content-Range` headers and appends to a partial upload
+6. `curl -C - -T response.tar.enc` resumes a previously interrupted upload
+7. After successful upload and checksum verification, the existing import pipeline (decrypt, HMAC verify, SHA256 per blob, atomic store) runs as before
+8. The existing `POST /admin/import` endpoint continues to work for local CLI usage
+9. Tests: full upload, resumed upload, checksum mismatch rejected, successful import after upload
+
+#### Story 6.7 - E2E Tests & Documentation
+
+As a **developer**,
+I want end-to-end tests and updated documentation for the API auth feature,
+so that we can release with confidence.
+
+**Acceptance Criteria:**
+1. E2E: `api-setup` with auto-signed cert, then curl with admin token: analyze (content) + generate-manifest (download) + import (PUT streaming) + pull via OCI
+2. E2E: curl with read-only token: status OK, analyze rejected (403)
+3. E2E: curl without token when auth enabled: 401 on all admin endpoints
+4. E2E: `api-reset admin`, old token rejected, new token works
+5. E2E: daemon without `api-setup`: all endpoints work without auth (backward compatible)
+6. README updated: `buncker api-setup` in command reference, curl examples in quick start
+7. Admin API endpoint reference updated with auth requirements and new endpoints (PUT import)
+8. All tests run in CI without real network
 
 ---
 

@@ -1,6 +1,6 @@
 # Buncker Architecture Document
 
-> Generated: 2026-03-04 | Version: 1.0 | Author: Romain G.
+> Generated: 2026-03-06 | Version: 2.0 | Author: Romain G.
 
 ---
 
@@ -16,7 +16,8 @@ This document outlines the overall project architecture for Buncker, a surgical 
 
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
-| 2026-03-04 | 1.0 | Initial architecture document | Winston |
+| 2026-03-04 | 1.0 | Initial architecture document | Romain G. |
+| 2026-03-06 | 2.0 | Added Admin API authentication, TLS, LAN client operations, streaming import | Romain G. |
 
 ---
 
@@ -39,6 +40,7 @@ Buncker is a surgical Docker layer synchronization system for air-gapped environ
    - Online: `buncker-fetch fetch request.json.enc` → downloads → `response.tar.enc` → USB
    - Offline: import → verification → store → Docker builds work
 5. **Key Decisions:** No internet fallback (miss = error), manual GC only, deduplication at manifest level, symmetric crypto (no PKI)
+6. **V2 - LAN Client Operations:** Optional Bearer token authentication on admin API via `buncker api-setup`. Two access levels (read-only, admin). TLS mandatory when auth enabled. LAN clients interact via curl - no new binary needed
 
 ### High Level Project Diagram
 
@@ -91,6 +93,12 @@ graph TB
 - **Symmetric Crypto (Pre-Shared Key):** AES-256 + HMAC-SHA256 derived from a BIP-39 mnemonic shared once. _Rationale:_ No PKI to manage, no certificates to renew, adapted to a context where both endpoints are controlled by the same organization.
 
 - **Delta Sync:** Only missing blobs are requested. The transfer manifest is a diff between the local store and Dockerfile needs. _Rationale:_ Core value proposition vs Hauler (bulk snapshot). Bandwidth and time savings.
+
+- **Optional Bearer Token Auth (V2):** Two-tier Bearer tokens (read-only / admin) on `/admin/*` endpoints, activated via `buncker api-setup`. `/v2/*` OCI endpoints remain unauthenticated. _Rationale:_ LAN clients (VMs, remote racks) need remote access to admin operations. Tokens are cryptographically random (256-bit), not derived from the mnemonic - separate security domain.
+
+- **TLS Enforcement with Auth:** When auth is enabled, TLS is mandatory (operator-provided cert or auto-signed). _Rationale:_ Bearer tokens in cleartext over HTTP = interceptable. Auto-signed reuses existing `export-ca` mechanism.
+
+- **Streaming Upload Pattern (V2):** Large file imports (`response.tar.enc`, potentially multi-GB) use PUT with chunked write-to-disk and `Content-Range` resume support. _Rationale:_ Buncker may run in a VM/rack/DC where USB is impractical. LAN transfers of multi-GB files must not load entirely in memory and must survive interruptions.
 
 ---
 
@@ -189,6 +197,16 @@ graph TB
 **Key Attributes:**
 - `source_path`, `build_args`, `images`: list[ResolvedImage] with `raw`, `resolved`, `registry`, `repository`, `tag`, `digest`, `platform`, `alias`, `is_internal`, `is_private`, `missing_blobs`
 
+### API Token Config (V2)
+
+**Purpose:** Bearer tokens for admin API authentication
+
+**Key Attributes:**
+- `readonly`: string - 256-bit hex token for read-only access
+- `admin`: string - 256-bit hex token for full admin access
+
+**Persistence:** `/etc/buncker/api-tokens.json` (mode 0600). Only exists after `buncker api-setup`.
+
 ---
 
 ## 5. Components
@@ -198,15 +216,22 @@ graph TB
 **Responsibility:** Central point of the isolated LAN. Serves Docker images to build clients and exposes store administration.
 
 **Key Interfaces:**
-- **OCI Distribution API (pull subset)** - configurable port (default 5000)
+- **OCI Distribution API (pull subset)** - configurable port (default 5000), always unauthenticated
   - `GET /v2/` - version check
   - `GET /v2/{name}/manifests/{reference}` - fetch manifest
   - `HEAD /v2/{name}/manifests/{reference}` - check existence
   - `GET /v2/{name}/blobs/{digest}` - fetch blob
   - `HEAD /v2/{name}/blobs/{digest}` - check blob existence
-- **Admin API** - same port, `/admin/` prefix
-  - `POST /admin/analyze`, `POST /admin/generate-manifest`, `POST /admin/import`
+- **Admin API** - same port, `/admin/` prefix, optional Bearer token auth (V2)
+  - `POST /admin/analyze`, `POST /admin/generate-manifest`, `POST /admin/import` (local POST), `PUT /admin/import` (remote streaming)
   - `GET /admin/status`, `GET /admin/gc/report`, `POST /admin/gc/execute`, `GET /admin/logs`
+- **Auth Middleware (V2)** - validates Bearer tokens on `/admin/*` when `api.enabled: true`
+  - Read-only token: `status`, `logs`, `gc/report`
+  - Admin token: all `/admin/*` endpoints
+- **Management CLI** - local-only commands (not exposed via HTTP)
+  - `buncker api-setup` - generate tokens, activate TLS
+  - `buncker api-show readonly|admin` - display token
+  - `buncker api-reset readonly|admin` - regenerate token
 
 **Dependencies:** None. Self-contained.
 
@@ -298,6 +323,7 @@ graph TB
 
     REGCLIENT_ON -->|HTTPS| REGISTRIES[Docker Hub<br/>ghcr.io<br/>quay.io]
     DOCKER[Build Clients] -->|HTTP/HTTPS| SERVER
+    LANCLIENT[LAN Clients<br/>curl] -->|HTTPS + Bearer| SERVER
 ```
 
 ---
@@ -462,35 +488,153 @@ sequenceDiagram
     F-->>ON: Pairing OK
 ```
 
+### Workflow 6 - API Setup (V2)
+
+```mermaid
+sequenceDiagram
+    participant OP as Operator (local)
+    participant D as buncker daemon
+
+    OP->>D: buncker api-setup [--cert cert.pem --key key.pem]
+    D->>D: Generate read-only token (256-bit)
+    D->>D: Generate admin token (256-bit)
+    alt Certificate provided
+        D->>D: Configure TLS with provided cert
+    else No certificate
+        D->>D: Generate auto-signed cert + CA
+        D-->>OP: WARNING: auto-signed certificate
+    end
+    D->>D: Save tokens to /etc/buncker/api-tokens.json (0600)
+    D->>D: Update config: api.enabled=true, tls=true
+    D-->>OP: Display read-only token
+    D-->>OP: Display admin token
+    Note over OP: Distribute tokens to LAN clients
+```
+
+### Workflow 7 - Remote Analysis via curl (V2)
+
+```mermaid
+sequenceDiagram
+    participant LC as LAN Client (curl)
+    participant D as buncker daemon
+    participant AUTH as Auth Middleware
+    participant RES as resolver
+    participant ST as store
+
+    LC->>D: POST /admin/analyze {dockerfile_content, build_args}
+    D->>AUTH: Validate Bearer token
+    alt Invalid/missing token
+        AUTH-->>LC: 401 Unauthorized
+    else Read-only token
+        AUTH-->>LC: 403 Forbidden
+    else Admin token
+        AUTH-->>D: OK
+    end
+    D->>RES: parse_dockerfile(content, build_args)
+    RES-->>D: AnalysisResult
+    D-->>LC: JSON analysis report
+
+    LC->>D: POST /admin/generate-manifest
+    D->>AUTH: Validate Bearer token (admin)
+    D-->>LC: request.json.enc (application/octet-stream)
+```
+
+### Workflow 8 - Remote Streaming Import via curl (V2)
+
+```mermaid
+sequenceDiagram
+    participant LC as LAN Client (curl)
+    participant D as buncker daemon
+    participant AUTH as Auth Middleware
+    participant CR as crypto
+    participant ST as store
+
+    LC->>D: PUT /admin/import (streaming body)
+    Note over LC,D: Headers: Authorization, X-Buncker-Checksum, Content-Range (optional)
+    D->>AUTH: Validate Bearer token (admin)
+    alt Invalid token
+        AUTH-->>LC: 401 Unauthorized
+    end
+
+    D->>D: Stream body to temp file (chunked)
+    alt Content-Range present (resume)
+        D->>D: Append to existing partial upload
+    end
+    D->>D: Verify X-Buncker-Checksum vs received file
+    alt Checksum mismatch
+        D-->>LC: 400 Upload integrity check failed
+    end
+
+    D->>CR: decrypt + verify HMAC
+    loop For each blob
+        D->>D: verify SHA256
+        D->>ST: import_blob (atomic write)
+    end
+    D-->>LC: JSON import summary
+```
+
 ---
 
 ## 8. REST API Spec
 
 ### OCI Distribution API (pull subset)
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/v2/` | Version check |
-| GET | `/v2/{name}/manifests/{reference}` | Fetch manifest |
-| HEAD | `/v2/{name}/manifests/{reference}` | Check manifest existence |
-| GET | `/v2/{name}/blobs/{digest}` | Fetch blob |
-| HEAD | `/v2/{name}/blobs/{digest}` | Check blob existence |
+| Method | Path | Purpose | Auth |
+|--------|------|---------|------|
+| GET | `/v2/` | Version check | None |
+| GET | `/v2/{name}/manifests/{reference}` | Fetch manifest | None |
+| HEAD | `/v2/{name}/manifests/{reference}` | Check manifest existence | None |
+| GET | `/v2/{name}/blobs/{digest}` | Fetch blob | None |
+| HEAD | `/v2/{name}/blobs/{digest}` | Check blob existence | None |
 
 Required headers on responses: `Docker-Content-Digest`, `Content-Type`, `Content-Length`.
 
+OCI endpoints are **always unauthenticated** regardless of auth configuration.
+
 ### Admin API
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| POST | `/admin/analyze` | Analyze Dockerfile(s) |
-| POST | `/admin/generate-manifest` | Generate request.json.enc |
-| POST | `/admin/import` | Import response.tar.enc (multipart/form-data) |
-| GET | `/admin/status` | Store state |
-| GET | `/admin/gc/report` | GC candidates report |
-| POST | `/admin/gc/execute` | Execute GC (requires operator + digests) |
-| GET | `/admin/logs` | Query logs (filter by event, since, limit) |
+| Method | Path | Purpose | Auth (V2) |
+|--------|------|---------|-----------|
+| POST | `/admin/analyze` | Analyze Dockerfile(s) - accepts `dockerfile_path` (localhost) or `dockerfile_content` (remote) | Admin |
+| POST | `/admin/generate-manifest` | Generate request.json.enc - returns file in response body | Admin |
+| POST | `/admin/import` | Import response.tar.enc (local CLI, multipart/form-data) | Admin |
+| PUT | `/admin/import` | Streaming upload of response.tar.enc (remote, `curl -T`) | Admin |
+| GET | `/admin/status` | Store state | Read-only |
+| GET | `/admin/gc/report` | GC candidates report | Read-only |
+| POST | `/admin/gc/execute` | Execute GC (requires operator + digests) | Admin |
+| GET | `/admin/logs` | Query logs (filter by event, since, limit) | Read-only |
 
-No authentication in V1 (isolated LAN). V2: optional Bearer token on admin endpoints.
+#### Authentication (V2 - after `buncker api-setup`)
+
+When `api.enabled: true` in config, all `/admin/*` requests require `Authorization: Bearer <token>`.
+
+| Response | Condition |
+|----------|-----------|
+| 401 Unauthorized | Missing or invalid token |
+| 403 Forbidden | Valid read-only token on an admin-only endpoint |
+
+When `api.enabled: false` (default, no `api-setup` run), all endpoints behave as V1 (no auth).
+
+#### PUT /admin/import - Streaming Upload
+
+| Header | Required | Purpose |
+|--------|----------|---------|
+| `Authorization: Bearer <token>` | Yes (when auth enabled) | Admin token |
+| `X-Buncker-Checksum: sha256:<hex>` | Yes | Pre-decryption integrity check |
+| `Content-Range: bytes <start>-<end>/<total>` | No | Resume partial upload |
+| `Content-Length` | Yes | Total body size |
+
+The daemon writes the body to disk in chunks (never loads entirely in memory). After upload, it verifies the checksum before running the standard import pipeline.
+
+#### Audit Log Fields (V2)
+
+All API requests are logged with additional fields:
+
+| Field | Values |
+|-------|--------|
+| `client_ip` | Source IP address |
+| `auth_level` | `admin`, `readonly`, `local`, `rejected` |
+| `user_agent` | User-Agent header value |
 
 ---
 
@@ -523,11 +667,25 @@ No authentication in V1 (isolated LAN). V2: optional Bearer token on admin endpo
   "max_workers": 16,
   "tls": false,
   "crypto": { "salt": "base64...", "mnemonic_hash": "sha256:..." },
+  "api": { "enabled": false },
   "private_registries": ["registry.internal", "localhost:*"],
   "gc": { "inactive_days_threshold": 90 },
   "log_level": "INFO"
 }
 ```
+
+When `api.enabled: true` (after `buncker api-setup`), `tls` is also set to `true`.
+
+### API tokens (`/etc/buncker/api-tokens.json`, mode 0600)
+
+```json
+{
+  "readonly": "hex-encoded-256-bit-token",
+  "admin": "hex-encoded-256-bit-token"
+}
+```
+
+This file only exists after `buncker api-setup`. It is never readable by non-root users.
 
 ### Cache online (`~/.buncker/`)
 
@@ -557,6 +715,7 @@ buncker/
 │   ├── __main__.py
 │   ├── server.py
 │   ├── handler.py
+│   ├── auth.py
 │   ├── resolver.py
 │   ├── registry_client.py
 │   ├── store.py
@@ -579,6 +738,7 @@ buncker/
 │   │   ├── test_resolver.py
 │   │   ├── test_store.py
 │   │   ├── test_handler.py
+│   │   ├── test_auth.py
 │   │   ├── test_transfer.py
 │   │   └── test_server_integration.py
 │   └── buncker_fetch/
@@ -676,7 +836,8 @@ class TransferError(BunckerError): ...
 
 - **Format:** JSON Lines, append-only
 - **Levels:** DEBUG, INFO, WARNING, ERROR
-- **Events:** `dockerfile_analyzed`, `transfer_manifest_generated`, `transfer_imported`, `blob_pulled`, `blob_missing`, `gc_candidate`, `gc_executed`, `key_rotation`
+- **Events:** `dockerfile_analyzed`, `transfer_manifest_generated`, `transfer_imported`, `blob_pulled`, `blob_missing`, `gc_candidate`, `gc_executed`, `key_rotation`, `api_auth_rejected`, `api_token_reset`, `api_setup_completed`
+- **V2 fields on API requests:** `client_ip`, `auth_level` (`admin`, `readonly`, `local`, `rejected`), `user_agent`
 - **Never log:** mnemonic, derived keys, Bearer tokens, passwords
 
 ---
@@ -725,23 +886,44 @@ class TransferError(BunckerError): ...
 ### Input Validation
 - Digest format: `^sha256:[a-f0-9]{64}$`
 - Tag format: `^[a-zA-Z0-9._-]{1,128}$`
-- Path traversal prevention on Dockerfile paths
+- Path traversal prevention on Dockerfile paths (localhost only in V2 - remote sends content, not path)
 - No eval, no shell execution of build-args
+- `X-Buncker-Checksum` header validated before any decryption attempt
 
 ### Authentication
-- V1: None on offline daemon (isolated LAN is the security perimeter)
+
+#### Transfer channel (mnemonic)
+- BIP-39 mnemonic shared once via human channel
+- Derives AES + HMAC keys for USB transfer encryption
+- Unchanged in V2
+
+#### Admin API (V2 - Bearer tokens)
+- Activated by `buncker api-setup` (optional)
+- Two cryptographically random tokens (256-bit, `secrets.token_hex(32)`)
+  - **Read-only**: `status`, `logs`, `gc/report`
+  - **Admin**: all `/admin/*` endpoints
+- Token comparison: constant-time (`hmac.compare_digest`)
+- Tokens stored in `/etc/buncker/api-tokens.json` (mode 0600)
+- Token management: `buncker api-show|api-reset readonly|admin` (local CLI only)
+- Failed auth logged with `auth_level: rejected` - no information leakage about token validity
+
+#### OCI Distribution API
+- Always unauthenticated (`/v2/*`) - Docker clients pull without tokens
 - Online: registry credentials via env vars only, never plaintext in config
 
 ### Secrets Management
 - Mnemonic: communicated once via human channel, never stored in cleartext
 - Derived keys: in-memory only during execution, never written to disk
 - Config stores only verification hashes and salts
+- API tokens: separate from mnemonic, stored in restricted file (0600), not derived from mnemonic
+- Logs NEVER contain: mnemonic, derived keys, Bearer tokens, passwords
 
 ### Data Protection
 - Transfer files (USB): AES-256-GCM + HMAC-SHA256, always encrypted
-- LAN: TLS optional, configurable
+- LAN: TLS mandatory when API auth is enabled. HTTP allowed only without auth (local-only usage)
 - Internet (buncker-fetch): HTTPS mandatory
 - Store blobs: cleartext on disk (disk encryption is OS responsibility)
+- TLS: operator-provided certificate (internal/external CA) or auto-signed with explicit security warning
 
 ### Dependency Security
 - Single dependency: `python3-cryptography` (Debian-maintained)

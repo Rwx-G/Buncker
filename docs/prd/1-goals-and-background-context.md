@@ -48,5 +48,6 @@ Buncker is the only tool combining Dockerfile resolution + delta sync + encrypti
 | 2026-03-04 | 1.0 | Initial PRD from brainstorm + architecture | Romain G. |
 | 2026-03-04 | 1.1 | Added persona, competitive analysis, success metrics, out-of-scope, license | Romain G. |
 | 2026-03-04 | 1.2 | Translated to English (public repo) | Romain G. |
+| 2026-03-06 | 2.0 | Added Epic 6: Admin API Authentication & LAN Client Operations | Romain G. |
 
 ---

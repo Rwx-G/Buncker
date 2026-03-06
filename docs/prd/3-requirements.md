@@ -18,6 +18,16 @@
 - **FR14:** buncker-fetch supports inspection of a request.json.enc without downloading (inspect command)
 - **FR15:** The request.json.enc includes the buncker version; buncker-fetch includes the updated .deb in response.tar.enc if a newer version exists
 - **FR16:** The offline daemon NEVER attempts an external network connection. A missing blob = 404 error, no fallback
+- **FR17:** `buncker api-setup` generates two Bearer tokens (read-only and admin), activates TLS, and persists tokens in a restricted file (mode 0600)
+- **FR18:** The daemon validates Bearer tokens on `/admin/*` endpoints with two access levels: read-only (`status`, `logs`, `gc/report`) and admin (`analyze`, `generate-manifest`, `import`, `gc/execute`)
+- **FR19:** `/v2/*` OCI Distribution endpoints remain unauthenticated regardless of auth configuration, so Docker clients can pull without token management
+- **FR20:** `POST /admin/analyze` accepts Dockerfile content in the request body for remote clients; path-based analysis remains available for localhost requests only
+- **FR21:** `PUT /admin/import` supports streaming upload of `response.tar.enc` with chunked write-to-disk and resume via `Content-Range` headers (`curl -C -`)
+- **FR22:** The daemon verifies a `X-Buncker-Checksum: sha256:...` header on uploaded files before attempting decryption, to reject corrupted uploads early
+- **FR23:** `buncker api-show readonly|admin` re-displays the specified token; `buncker api-reset readonly|admin` regenerates it and invalidates the previous one
+- **FR24:** `buncker api-setup` activates TLS: accepts an operator-provided certificate (`--cert`, `--key`) or generates an auto-signed certificate with an explicit security warning. Reuses the existing `buncker export-ca` mechanism
+- **FR25:** All API log entries include `client_ip`, `auth_level` (`admin`, `readonly`, `local`, `rejected`), and `user_agent` fields
+- **FR26:** Failed authentication attempts (invalid or missing token) are logged with `auth_level: rejected` and do not reveal whether the token was close to valid
 
 ## Non Functional
 
@@ -28,8 +38,11 @@
 - **NFR5:** Error messages are actionable: what failed + context + what to do
 - **NFR6:** The daemon supports N simultaneous build clients via bounded ThreadPoolExecutor (max_workers configurable, default 16)
 - **NFR7:** Complete audit trail: every operation is logged in JSON Lines with timestamp, event, context. Logs NEVER contain secrets (mnemonic, keys, tokens)
-- **NFR8:** TLS optional and configurable on the internal LAN. TLS mandatory for buncker-fetch to public registries (native HTTPS)
+- **NFR8:** TLS optional and configurable on the internal LAN. TLS mandatory for buncker-fetch to public registries (native HTTPS). TLS mandatory when API authentication is enabled
 - **NFR9:** The project is open source on GitHub with CI (GitHub Actions: ruff lint + pytest tests + .deb build)
 - **NFR10:** Test coverage: 80% minimum overall, 100% on the crypto module
+- **NFR11:** Bearer tokens are cryptographically random (256-bit, `secrets.token_hex(32)`) and stored with restricted file permissions (0600)
+- **NFR12:** Streaming import handles files up to multiple GB without loading them entirely in memory (chunked read/write to disk)
+- **NFR13:** The daemon refuses to start with API authentication enabled and TLS disabled, preventing token transmission in cleartext
 
 ---

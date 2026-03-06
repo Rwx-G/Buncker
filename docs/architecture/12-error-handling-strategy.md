@@ -24,7 +24,8 @@ class TransferError(BunckerError): ...
 
 - **Format:** JSON Lines, append-only
 - **Levels:** DEBUG, INFO, WARNING, ERROR
-- **Events:** `dockerfile_analyzed`, `transfer_manifest_generated`, `transfer_imported`, `blob_pulled`, `blob_missing`, `gc_candidate`, `gc_executed`, `key_rotation`
+- **Events:** `dockerfile_analyzed`, `transfer_manifest_generated`, `transfer_imported`, `blob_pulled`, `blob_missing`, `gc_candidate`, `gc_executed`, `key_rotation`, `api_auth_rejected`, `api_token_reset`, `api_setup_completed`
+- **V2 fields on API requests:** `client_ip`, `auth_level` (`admin`, `readonly`, `local`, `rejected`), `user_agent`
 - **Never log:** mnemonic, derived keys, Bearer tokens, passwords
 
 ---

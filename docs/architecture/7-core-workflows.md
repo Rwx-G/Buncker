@@ -139,4 +139,89 @@ sequenceDiagram
     F-->>ON: Pairing OK
 ```
 
+## Workflow 6 - API Setup (V2)
+
+```mermaid
+sequenceDiagram
+    participant OP as Operator (local)
+    participant D as buncker daemon
+
+    OP->>D: buncker api-setup [--cert cert.pem --key key.pem]
+    D->>D: Generate read-only token (256-bit)
+    D->>D: Generate admin token (256-bit)
+    alt Certificate provided
+        D->>D: Configure TLS with provided cert
+    else No certificate
+        D->>D: Generate auto-signed cert + CA
+        D-->>OP: WARNING: auto-signed certificate
+    end
+    D->>D: Save tokens to /etc/buncker/api-tokens.json (0600)
+    D->>D: Update config: api.enabled=true, tls=true
+    D-->>OP: Display read-only token
+    D-->>OP: Display admin token
+    Note over OP: Distribute tokens to LAN clients
+```
+
+## Workflow 7 - Remote Analysis via curl (V2)
+
+```mermaid
+sequenceDiagram
+    participant LC as LAN Client (curl)
+    participant D as buncker daemon
+    participant AUTH as Auth Middleware
+    participant RES as resolver
+    participant ST as store
+
+    LC->>D: POST /admin/analyze {dockerfile_content, build_args}
+    D->>AUTH: Validate Bearer token
+    alt Invalid/missing token
+        AUTH-->>LC: 401 Unauthorized
+    else Read-only token
+        AUTH-->>LC: 403 Forbidden
+    else Admin token
+        AUTH-->>D: OK
+    end
+    D->>RES: parse_dockerfile(content, build_args)
+    RES-->>D: AnalysisResult
+    D-->>LC: JSON analysis report
+
+    LC->>D: POST /admin/generate-manifest
+    D->>AUTH: Validate Bearer token (admin)
+    D-->>LC: request.json.enc (application/octet-stream)
+```
+
+## Workflow 8 - Remote Streaming Import via curl (V2)
+
+```mermaid
+sequenceDiagram
+    participant LC as LAN Client (curl)
+    participant D as buncker daemon
+    participant AUTH as Auth Middleware
+    participant CR as crypto
+    participant ST as store
+
+    LC->>D: PUT /admin/import (streaming body)
+    Note over LC,D: Headers: Authorization, X-Buncker-Checksum, Content-Range (optional)
+    D->>AUTH: Validate Bearer token (admin)
+    alt Invalid token
+        AUTH-->>LC: 401 Unauthorized
+    end
+
+    D->>D: Stream body to temp file (chunked)
+    alt Content-Range present (resume)
+        D->>D: Append to existing partial upload
+    end
+    D->>D: Verify X-Buncker-Checksum vs received file
+    alt Checksum mismatch
+        D-->>LC: 400 Upload integrity check failed
+    end
+
+    D->>CR: decrypt + verify HMAC
+    loop For each blob
+        D->>D: verify SHA256
+        D->>ST: import_blob (atomic write)
+    end
+    D-->>LC: JSON import summary
+```
+
 ---

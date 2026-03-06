@@ -5,15 +5,22 @@
 **Responsibility:** Central point of the isolated LAN. Serves Docker images to build clients and exposes store administration.
 
 **Key Interfaces:**
-- **OCI Distribution API (pull subset)** - configurable port (default 5000)
+- **OCI Distribution API (pull subset)** - configurable port (default 5000), always unauthenticated
   - `GET /v2/` - version check
   - `GET /v2/{name}/manifests/{reference}` - fetch manifest
   - `HEAD /v2/{name}/manifests/{reference}` - check existence
   - `GET /v2/{name}/blobs/{digest}` - fetch blob
   - `HEAD /v2/{name}/blobs/{digest}` - check blob existence
-- **Admin API** - same port, `/admin/` prefix
-  - `POST /admin/analyze`, `POST /admin/generate-manifest`, `POST /admin/import`
+- **Admin API** - same port, `/admin/` prefix, optional Bearer token auth (V2)
+  - `POST /admin/analyze`, `POST /admin/generate-manifest`, `POST /admin/import` (local POST), `PUT /admin/import` (remote streaming)
   - `GET /admin/status`, `GET /admin/gc/report`, `POST /admin/gc/execute`, `GET /admin/logs`
+- **Auth Middleware (V2)** - validates Bearer tokens on `/admin/*` when `api.enabled: true`
+  - Read-only token: `status`, `logs`, `gc/report`
+  - Admin token: all `/admin/*` endpoints
+- **Management CLI** - local-only commands (not exposed via HTTP)
+  - `buncker api-setup` - generate tokens, activate TLS
+  - `buncker api-show readonly|admin` - display token
+  - `buncker api-reset readonly|admin` - regenerate token
 
 **Dependencies:** None. Self-contained.
 
@@ -107,6 +114,7 @@ graph TB
 
     REGCLIENT_ON -->|HTTPS| REGISTRIES[Docker Hub<br/>ghcr.io<br/>quay.io]
     DOCKER[Build Clients] -->|HTTP/HTTPS| SERVER
+    LANCLIENT[LAN Clients<br/>curl] -->|HTTPS + Bearer| SERVER
 ```
 
 ---
