@@ -514,6 +514,15 @@ def _cmd_serve(args: argparse.Namespace) -> None:
     # Derive keys from 12-word mnemonic + embedded salt
     aes_key, hmac_key = derive_keys(mnemonic_12, salt)
 
+    # Load API tokens if auth is enabled
+    api_tokens = None
+    api_enabled = api_config.get("enabled", False)
+    if api_enabled:
+        from buncker.auth import load_api_tokens
+
+        config_dir = (args.config or Path("/etc/buncker/config.json")).parent
+        api_tokens = load_api_tokens(config_dir / "api-tokens.json")
+
     # Initialize store and server
     from buncker.server import BunckerServer
     from buncker.store import Store
@@ -527,6 +536,8 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         crypto_keys=(aes_key, hmac_key),
         source_id=config.get("source_id", ""),
         log_path=Path(config["store_path"]) / "buncker.log",
+        api_tokens=api_tokens,
+        api_enabled=api_enabled,
     )
 
     # Handle SIGTERM/SIGINT

@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from buncker import __version__
+from buncker.auth import AuthError, authenticate_request
 from buncker.store import Store
 from shared.exceptions import ResolverError, StoreError, TransferError
 
@@ -45,6 +46,23 @@ class BunckerHandler(BaseHTTPRequestHandler):
         """Override to use structured logging instead of stderr."""
         _log.debug("http_request", extra={"message": format % args})
 
+    def _check_auth(self) -> str | None:
+        """Run auth middleware. Returns auth_level or None if error sent."""
+        try:
+            return authenticate_request(
+                self,
+                getattr(self._server_ref, "api_tokens", None),
+                getattr(self._server_ref, "api_enabled", False),
+            )
+        except AuthError as e:
+            body = json.dumps({"error": e.message, "code": e.code}).encode()
+            self.send_response(e.status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return None
+
     # ------------------------------------------------------------------
     # GET
     # ------------------------------------------------------------------
@@ -56,6 +74,11 @@ class BunckerHandler(BaseHTTPRequestHandler):
         if _V2_ROOT.match(path):
             self._handle_v2_root()
             return
+
+        # Auth check for admin endpoints
+        if path.startswith("/admin/"):
+            if self._check_auth() is None:
+                return
 
         # Admin GET routes
         if path == "/admin/status":
@@ -111,6 +134,11 @@ class BunckerHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         """Route POST requests."""
         path = urlparse(self.path).path
+
+        # Auth check for admin endpoints
+        if path.startswith("/admin/"):
+            if self._check_auth() is None:
+                return
 
         if path == "/admin/analyze":
             self._handle_admin_analyze()

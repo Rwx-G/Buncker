@@ -63,6 +63,8 @@ class BunckerServer:
         crypto_keys: tuple[bytes, bytes] | None = None,
         source_id: str = "",
         log_path: Path | None = None,
+        api_tokens: dict[str, str] | None = None,
+        api_enabled: bool = False,
     ) -> None:
         self._bind = bind
         self._port = port
@@ -73,6 +75,8 @@ class BunckerServer:
         self.crypto_keys = crypto_keys
         self.source_id = source_id
         self.log_path = log_path
+        self.api_tokens = api_tokens
+        self.api_enabled = api_enabled
         self._start_time: float | None = None
         self._last_analysis = None
 

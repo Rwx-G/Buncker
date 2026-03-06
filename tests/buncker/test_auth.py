@@ -1,17 +1,21 @@
-"""Tests for buncker.auth - API token generation, persistence, and TLS."""
+"""Tests for buncker.auth - API token generation, persistence, TLS, and middleware."""
 
 from __future__ import annotations
 
 import json
 import os
 import sys
+import urllib.request
 from unittest import mock
 
 import pytest
 
 from buncker.auth import (
+    AuthError,
+    authenticate_request,
     generate_api_tokens,
     generate_self_signed_cert,
+    get_required_level,
     load_api_tokens,
     save_api_tokens,
 )
@@ -280,6 +284,208 @@ class TestApiSetupCommand:
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code == 1
+
+
+class TestGetRequiredLevel:
+    """Tests for get_required_level()."""
+
+    def test_readonly_endpoints(self):
+        assert get_required_level("/admin/status", "GET") == "readonly"
+        assert get_required_level("/admin/logs", "GET") == "readonly"
+        assert get_required_level("/admin/gc/report", "GET") == "readonly"
+
+    def test_admin_endpoints(self):
+        assert get_required_level("/admin/analyze", "POST") == "admin"
+        assert get_required_level("/admin/generate-manifest", "POST") == "admin"
+        assert get_required_level("/admin/import", "POST") == "admin"
+        assert get_required_level("/admin/import", "PUT") == "admin"
+        assert get_required_level("/admin/gc/execute", "POST") == "admin"
+
+    def test_oci_endpoints_return_none(self):
+        assert get_required_level("/v2/", "GET") is None
+        assert get_required_level("/v2/library/alpine/manifests/latest", "GET") is None
+
+    def test_unknown_admin_defaults_to_admin(self):
+        assert get_required_level("/admin/unknown", "GET") == "admin"
+
+
+class TestAuthenticateRequest:
+    """Tests for authenticate_request() middleware."""
+
+    def _make_handler(self, path: str, method: str, auth_header: str = ""):
+        """Create a mock handler for testing."""
+        handler = mock.MagicMock()
+        handler.path = path
+        handler.command = method
+        handler.headers = {"Authorization": auth_header} if auth_header else {}
+        return handler
+
+    def test_oci_always_unauthenticated(self):
+        handler = self._make_handler("/v2/", "GET")
+        tokens = {"readonly": "ro_token", "admin": "admin_token"}
+        level = authenticate_request(handler, tokens, api_enabled=True)
+        assert level == "local"
+
+    def test_no_auth_when_disabled(self):
+        handler = self._make_handler("/admin/status", "GET")
+        tokens = {"readonly": "ro_token", "admin": "admin_token"}
+        level = authenticate_request(handler, tokens, api_enabled=False)
+        assert level == "local"
+
+    def test_no_auth_when_no_tokens(self):
+        handler = self._make_handler("/admin/status", "GET")
+        level = authenticate_request(handler, None, api_enabled=True)
+        assert level == "local"
+
+    def test_admin_token_on_admin_endpoint(self):
+        handler = self._make_handler(
+            "/admin/analyze", "POST", "Bearer admin_token"
+        )
+        tokens = {"readonly": "ro_token", "admin": "admin_token"}
+        level = authenticate_request(handler, tokens, api_enabled=True)
+        assert level == "admin"
+
+    def test_admin_token_on_readonly_endpoint(self):
+        handler = self._make_handler(
+            "/admin/status", "GET", "Bearer admin_token"
+        )
+        tokens = {"readonly": "ro_token", "admin": "admin_token"}
+        level = authenticate_request(handler, tokens, api_enabled=True)
+        assert level == "admin"
+
+    def test_readonly_token_on_readonly_endpoint(self):
+        handler = self._make_handler(
+            "/admin/status", "GET", "Bearer ro_token"
+        )
+        tokens = {"readonly": "ro_token", "admin": "admin_token"}
+        level = authenticate_request(handler, tokens, api_enabled=True)
+        assert level == "readonly"
+
+    def test_readonly_token_on_admin_endpoint_forbidden(self):
+        handler = self._make_handler(
+            "/admin/analyze", "POST", "Bearer ro_token"
+        )
+        tokens = {"readonly": "ro_token", "admin": "admin_token"}
+        with pytest.raises(AuthError) as exc_info:
+            authenticate_request(handler, tokens, api_enabled=True)
+        assert exc_info.value.status == 403
+        assert exc_info.value.code == "FORBIDDEN"
+
+    def test_invalid_token_unauthorized(self):
+        handler = self._make_handler(
+            "/admin/status", "GET", "Bearer wrong_token"
+        )
+        tokens = {"readonly": "ro_token", "admin": "admin_token"}
+        with pytest.raises(AuthError) as exc_info:
+            authenticate_request(handler, tokens, api_enabled=True)
+        assert exc_info.value.status == 401
+
+    def test_missing_token_unauthorized(self):
+        handler = self._make_handler("/admin/status", "GET")
+        tokens = {"readonly": "ro_token", "admin": "admin_token"}
+        with pytest.raises(AuthError) as exc_info:
+            authenticate_request(handler, tokens, api_enabled=True)
+        assert exc_info.value.status == 401
+
+
+class TestAuthIntegration:
+    """Integration tests for auth middleware with live server."""
+
+    def _setup_server_with_auth(self, tmp_path):
+        """Create a server with auth enabled and return (server, tokens)."""
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        tokens = {"readonly": "ro_" + "a" * 61, "admin": "ad_" + "b" * 61}
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+            api_tokens=tokens,
+            api_enabled=True,
+        )
+        srv.start()
+        return srv, tokens
+
+    def test_admin_status_with_readonly_token(self, tmp_path):
+        srv, tokens = self._setup_server_with_auth(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/status"
+            req = urllib.request.Request(
+                url, headers={"Authorization": f"Bearer {tokens['readonly']}"}
+            )
+            resp = urllib.request.urlopen(req)
+            assert resp.status == 200
+            data = json.loads(resp.read())
+            assert "version" in data
+        finally:
+            srv.stop()
+
+    def test_admin_status_with_admin_token(self, tmp_path):
+        srv, tokens = self._setup_server_with_auth(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/status"
+            req = urllib.request.Request(
+                url, headers={"Authorization": f"Bearer {tokens['admin']}"}
+            )
+            resp = urllib.request.urlopen(req)
+            assert resp.status == 200
+        finally:
+            srv.stop()
+
+    def test_admin_status_without_token_returns_401(self, tmp_path):
+        srv, _ = self._setup_server_with_auth(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/status"
+            with pytest.raises(urllib.error.HTTPError) as exc_info:
+                urllib.request.urlopen(url)
+            assert exc_info.value.code == 401
+        finally:
+            srv.stop()
+
+    def test_admin_status_with_invalid_token_returns_401(self, tmp_path):
+        srv, _ = self._setup_server_with_auth(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/status"
+            req = urllib.request.Request(
+                url, headers={"Authorization": "Bearer invalid_token"}
+            )
+            with pytest.raises(urllib.error.HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 401
+        finally:
+            srv.stop()
+
+    def test_v2_without_token_returns_200(self, tmp_path):
+        srv, _ = self._setup_server_with_auth(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/"
+            resp = urllib.request.urlopen(url)
+            assert resp.status == 200
+        finally:
+            srv.stop()
+
+    def test_no_auth_when_disabled(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+            api_enabled=False,
+        )
+        srv.start()
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/status"
+            resp = urllib.request.urlopen(url)
+            assert resp.status == 200
+        finally:
+            srv.stop()
 
 
 class TestStartupValidation:

@@ -1,12 +1,16 @@
-"""API token generation, persistence, and TLS certificate management."""
+"""API token generation, persistence, TLS, and auth middleware."""
 
 from __future__ import annotations
 
 import contextlib
+import hmac as _hmac
 import json
+import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+_log = logging.getLogger("buncker.auth")
 
 _DEFAULT_TOKENS_PATH = Path("/etc/buncker/api-tokens.json")
 
@@ -159,3 +163,104 @@ def ipaddress_from_string(addr: str):
     import ipaddress
 
     return ipaddress.IPv4Address(addr)
+
+
+# -- Auth Middleware (Story 6.2) --
+
+# Endpoint access matrix: path -> (method, required_level)
+_READONLY_ENDPOINTS = {
+    ("/admin/status", "GET"),
+    ("/admin/logs", "GET"),
+    ("/admin/gc/report", "GET"),
+}
+
+_ADMIN_ENDPOINTS = {
+    ("/admin/analyze", "POST"),
+    ("/admin/generate-manifest", "POST"),
+    ("/admin/import", "POST"),
+    ("/admin/import", "PUT"),
+    ("/admin/gc/execute", "POST"),
+}
+
+
+def get_required_level(path: str, method: str) -> str | None:
+    """Return the required auth level for an endpoint.
+
+    Returns:
+        'readonly', 'admin', or None if the endpoint doesn't need auth.
+    """
+    key = (path, method)
+    if key in _READONLY_ENDPOINTS:
+        return "readonly"
+    if key in _ADMIN_ENDPOINTS:
+        return "admin"
+    # Unknown admin endpoint defaults to admin
+    if path.startswith("/admin/"):
+        return "admin"
+    return None
+
+
+def authenticate_request(
+    handler,
+    tokens: dict[str, str] | None,
+    api_enabled: bool,
+) -> str:
+    """Authenticate an HTTP request and return the auth level.
+
+    Args:
+        handler: The BaseHTTPRequestHandler instance.
+        tokens: Loaded API tokens dict, or None if not configured.
+        api_enabled: Whether API auth is enabled in config.
+
+    Returns:
+        Auth level string: 'admin', 'readonly', or 'local'.
+
+    Raises:
+        AuthError: If authentication fails (401 or 403).
+    """
+    path = handler.path.split("?")[0]
+    method = handler.command
+
+    # OCI endpoints are always unauthenticated
+    if path.startswith("/v2"):
+        return "local"
+
+    required_level = get_required_level(path, method)
+
+    # If auth is not enabled, all endpoints are open
+    if not api_enabled or tokens is None:
+        return "local"
+
+    # No auth required for this endpoint
+    if required_level is None:
+        return "local"
+
+    # Extract Bearer token
+    auth_header = handler.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise AuthError(401, "Authentication required", "AUTH_REQUIRED")
+
+    token = auth_header[7:]  # Strip "Bearer "
+
+    # Check admin token first (grants full access)
+    if _hmac.compare_digest(token, tokens.get("admin", "")):
+        return "admin"
+
+    # Check readonly token
+    if _hmac.compare_digest(token, tokens.get("readonly", "")):
+        if required_level == "admin":
+            raise AuthError(403, "Insufficient permissions", "FORBIDDEN")
+        return "readonly"
+
+    # Invalid token
+    raise AuthError(401, "Authentication required", "AUTH_REQUIRED")
+
+
+class AuthError(Exception):
+    """Raised when authentication fails."""
+
+    def __init__(self, status: int, message: str, code: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.message = message
+        self.code = code
