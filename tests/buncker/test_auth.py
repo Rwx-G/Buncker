@@ -488,6 +488,78 @@ class TestAuthIntegration:
             srv.stop()
 
 
+class TestAuditTrail:
+    """Tests for audit trail enrichment (Story 6.3)."""
+
+    def _setup_server_with_auth(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        tokens = {"readonly": "ro_" + "a" * 61, "admin": "ad_" + "b" * 61}
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+            api_tokens=tokens,
+            api_enabled=True,
+        )
+        srv.start()
+        return srv, tokens
+
+    def test_rejected_auth_logged(self, tmp_path, caplog):
+        import logging
+
+        srv, _ = self._setup_server_with_auth(tmp_path)
+        try:
+            with caplog.at_level(logging.WARNING, logger="buncker.auth"):
+                url = f"http://127.0.0.1:{srv.port}/admin/status"
+                req = urllib.request.Request(
+                    url, headers={"Authorization": "Bearer wrong"}
+                )
+                with pytest.raises(urllib.error.HTTPError):
+                    urllib.request.urlopen(req)
+
+            # Check that the rejection was logged with audit fields
+            auth_records = [
+                r for r in caplog.records if r.getMessage() == "api_auth_rejected"
+            ]
+            assert len(auth_records) >= 1
+            record = auth_records[0]
+            assert hasattr(record, "client_ip")
+            assert hasattr(record, "auth_level")
+            assert record.auth_level == "rejected"
+            assert hasattr(record, "user_agent")
+        finally:
+            srv.stop()
+
+    def test_successful_request_has_audit_fields(self, tmp_path, caplog):
+        import logging
+
+        srv, tokens = self._setup_server_with_auth(tmp_path)
+        try:
+            with caplog.at_level(logging.DEBUG, logger="buncker.handler"):
+                url = f"http://127.0.0.1:{srv.port}/admin/status"
+                req = urllib.request.Request(
+                    url,
+                    headers={"Authorization": f"Bearer {tokens['admin']}"},
+                )
+                resp = urllib.request.urlopen(req)
+                assert resp.status == 200
+        finally:
+            srv.stop()
+
+    def test_v2_no_auth_still_works(self, tmp_path):
+        srv, _ = self._setup_server_with_auth(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/"
+            resp = urllib.request.urlopen(url)
+            assert resp.status == 200
+        finally:
+            srv.stop()
+
+
 class TestStartupValidation:
     """Tests for daemon startup checks."""
 

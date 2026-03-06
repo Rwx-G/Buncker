@@ -40,21 +40,37 @@ class BunckerHandler(BaseHTTPRequestHandler):
 
     def __init__(self, *args, server_ref=None, **kwargs):
         self._server_ref = server_ref
+        self._auth_level = "local"
         super().__init__(*args, **kwargs)
 
     def log_message(self, format, *args):
         """Override to use structured logging instead of stderr."""
-        _log.debug("http_request", extra={"message": format % args})
+        _log.debug("http_request", extra={"http_message": format % args})
+
+    def _request_meta(self, auth_level: str = "local") -> dict:
+        """Extract common request metadata for structured logging."""
+        return {
+            "client_ip": self.client_address[0],
+            "auth_level": auth_level,
+            "user_agent": self.headers.get("User-Agent", ""),
+        }
 
     def _check_auth(self) -> str | None:
         """Run auth middleware. Returns auth_level or None if error sent."""
         try:
-            return authenticate_request(
+            level = authenticate_request(
                 self,
                 getattr(self._server_ref, "api_tokens", None),
                 getattr(self._server_ref, "api_enabled", False),
             )
+            self._auth_level = level
+            return level
         except AuthError as e:
+            meta = self._request_meta("rejected")
+            _log.warning(
+                "api_auth_rejected",
+                extra={**meta, "status": e.status, "code": e.code},
+            )
             body = json.dumps({"error": e.message, "code": e.code}).encode()
             self.send_response(e.status)
             self.send_header("Content-Type", "application/json")
@@ -340,6 +356,14 @@ class BunckerHandler(BaseHTTPRequestHandler):
             "warnings": result.warnings,
         }
 
+        _log.info(
+            "dockerfile_analyzed",
+            extra={
+                **self._request_meta(self._auth_level),
+                "images": len(report["images"]),
+                "missing_blobs": len(report["missing_blobs"]),
+            },
+        )
         self._send_json(200, report)
 
     def _handle_admin_generate_manifest(self):
@@ -408,6 +432,15 @@ class BunckerHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encrypted)
 
+        _log.info(
+            "manifest_generated",
+            extra={
+                **self._request_meta(self._auth_level),
+                "filename": filename,
+                "size": len(encrypted),
+            },
+        )
+
         # Clear analysis after generation
         self._server_ref._last_analysis = None
 
@@ -452,6 +485,13 @@ class BunckerHandler(BaseHTTPRequestHandler):
                 hmac_key=hmac_key,
                 store=store,
                 manifest_cache=ManifestCache(store.path),
+            )
+            _log.info(
+                "import_completed",
+                extra={
+                    **self._request_meta(self._auth_level),
+                    "size": content_length,
+                },
             )
             self._send_json(200, result)
         except TransferError as e:
@@ -542,6 +582,14 @@ class BunckerHandler(BaseHTTPRequestHandler):
             self._send_admin_error(400, "GC_ERROR", str(e))
             return
 
+        _log.info(
+            "gc_executed",
+            extra={
+                **self._request_meta(self._auth_level),
+                "digests_count": len(digests),
+                "operator": operator,
+            },
+        )
         self._send_json(200, result)
 
     def _handle_admin_logs(self):
