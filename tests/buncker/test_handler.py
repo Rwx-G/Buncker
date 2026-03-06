@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import urllib.request
 from urllib.error import HTTPError
@@ -179,5 +180,136 @@ class TestRemoteDockerfileAnalysis:
             assert "attachment" in resp.headers["Content-Disposition"]
             body = resp.read()
             assert len(body) > 0
+        finally:
+            srv.stop()
+
+
+class TestPutImport:
+    """Tests for PUT /admin/import streaming upload (Story 6.6)."""
+
+    def _make_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(
+            bind="127.0.0.1", port=0, store=store, source_id="test"
+        )
+        srv.start()
+        return srv
+
+    def test_put_missing_checksum_returns_400(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/import"
+            data = b"some data"
+            req = urllib.request.Request(
+                url, data=data, method="PUT",
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(len(data)),
+                },
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 400
+            body = json.loads(exc_info.value.read())
+            assert body["code"] == "MISSING_CHECKSUM"
+        finally:
+            srv.stop()
+
+    def test_put_checksum_mismatch_returns_400(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        srv.crypto_keys = (b"\x00" * 32, b"\x00" * 32)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/import"
+            data = b"some data"
+            req = urllib.request.Request(
+                url, data=data, method="PUT",
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(len(data)),
+                    "X-Buncker-Checksum": "sha256:" + "0" * 64,
+                },
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 400
+            body = json.loads(exc_info.value.read())
+            assert body["code"] == "CHECKSUM_MISMATCH"
+        finally:
+            srv.stop()
+
+    def test_put_with_correct_checksum_accepted(self, tmp_path):
+        """PUT with correct checksum is accepted (even if import fails due to invalid data)."""
+        srv = self._make_server(tmp_path)
+        try:
+            data = b"not a real tar.enc file"
+            checksum = hashlib.sha256(data).hexdigest()
+            url = f"http://127.0.0.1:{srv.port}/admin/import"
+            req = urllib.request.Request(
+                url, data=data, method="PUT",
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(len(data)),
+                    "X-Buncker-Checksum": f"sha256:{checksum}",
+                },
+            )
+            # Should pass checksum but fail on import (data is not valid encrypted tar)
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            # Error should be from import pipeline, not checksum
+            body = json.loads(exc_info.value.read())
+            assert body["code"] != "CHECKSUM_MISMATCH"
+        finally:
+            srv.stop()
+
+    def test_put_auth_required_when_enabled(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        tokens = {"readonly": "ro_" + "a" * 61, "admin": "ad_" + "b" * 61}
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(
+            bind="127.0.0.1", port=0, store=store,
+            source_id="test", api_tokens=tokens, api_enabled=True,
+        )
+        srv.start()
+        try:
+            data = b"test"
+            checksum = hashlib.sha256(data).hexdigest()
+            url = f"http://127.0.0.1:{srv.port}/admin/import"
+            req = urllib.request.Request(
+                url, data=data, method="PUT",
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(len(data)),
+                    "X-Buncker-Checksum": f"sha256:{checksum}",
+                },
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 401
+        finally:
+            srv.stop()
+
+    def test_post_import_still_works(self, tmp_path):
+        """POST /admin/import continues to work (regression)."""
+        srv = self._make_server(tmp_path)
+        try:
+            data = b"not a valid import"
+            url = f"http://127.0.0.1:{srv.port}/admin/import"
+            req = urllib.request.Request(
+                url, data=data,
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(len(data)),
+                },
+            )
+            # Will fail but with import error, not 404
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            body = json.loads(exc_info.value.read())
+            assert body["code"] != "NOT_FOUND"
         finally:
             srv.stop()

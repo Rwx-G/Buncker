@@ -172,6 +172,25 @@ class BunckerHandler(BaseHTTPRequestHandler):
         self._send_not_found()
 
     # ------------------------------------------------------------------
+    # PUT
+    # ------------------------------------------------------------------
+
+    def do_PUT(self):
+        """Route PUT requests."""
+        path = urlparse(self.path).path
+
+        # Auth check for admin endpoints
+        if path.startswith("/admin/"):
+            if self._check_auth() is None:
+                return
+
+        if path == "/admin/import":
+            self._handle_admin_import_put()
+            return
+
+        self._send_not_found()
+
+    # ------------------------------------------------------------------
     # OCI Distribution endpoints
     # ------------------------------------------------------------------
 
@@ -533,6 +552,135 @@ class BunckerHandler(BaseHTTPRequestHandler):
             self._send_admin_error(500, "INTERNAL_ERROR", str(e))
         finally:
             tmp_path.unlink(missing_ok=True)
+
+    def _drain_body(self):
+        """Read and discard remaining request body to avoid connection errors."""
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length > 0:
+            remaining = content_length
+            while remaining > 0:
+                chunk = self.rfile.read(min(_CHUNK_SIZE, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+
+    def _handle_admin_import_put(self):
+        """PUT /admin/import - Streaming upload of transfer response."""
+        # Require checksum header (validate before reading body)
+        checksum_header = self.headers.get("X-Buncker-Checksum", "")
+        if not checksum_header.startswith("sha256:"):
+            self._drain_body()
+            self._send_admin_error(
+                400, "MISSING_CHECKSUM",
+                "X-Buncker-Checksum: sha256:<hex> header required",
+            )
+            return
+
+        expected_hash = checksum_header[7:]  # Strip "sha256:"
+
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length == 0:
+            self._send_admin_error(400, "EMPTY_BODY", "request body required")
+            return
+
+        if content_length > _MAX_IMPORT_SIZE:
+            self._drain_body()
+            self._send_admin_error(
+                400, "BODY_TOO_LARGE", "request body exceeds 4 GiB limit"
+            )
+            return
+
+        crypto_keys = getattr(self._server_ref, "crypto_keys", None)
+        if crypto_keys is None:
+            self._drain_body()
+            self._send_admin_error(500, "NO_CRYPTO_KEYS", "crypto keys not configured")
+            return
+
+        # Determine upload file path (deterministic for resume)
+        store = self._get_store()
+        uploads_dir = store.path / ".uploads"
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        upload_key = hashlib.sha256(
+            f"{self.client_address[0]}:{expected_hash}".encode()
+        ).hexdigest()[:16]
+        upload_path = uploads_dir / f"{upload_key}.tar.enc"
+
+        # Handle Content-Range for resume
+        content_range = self.headers.get("Content-Range", "")
+        if content_range:
+            # Parse "bytes <start>-<end>/<total>"
+            import re as _re
+
+            m = _re.match(r"bytes (\d+)-(\d+)/(\d+)", content_range)
+            if not m:
+                self._send_admin_error(
+                    400, "INVALID_RANGE", "invalid Content-Range format"
+                )
+                return
+            start = int(m.group(1))
+            current_size = upload_path.stat().st_size if upload_path.exists() else 0
+            if start != current_size:
+                self._send_admin_error(
+                    400, "RANGE_MISMATCH",
+                    f"expected offset {current_size}, got {start}",
+                )
+                return
+            mode = "ab"
+        else:
+            mode = "wb"
+
+        # Stream body to disk in chunks
+        with open(upload_path, mode) as f:
+            remaining = content_length
+            while remaining > 0:
+                chunk = self.rfile.read(min(_CHUNK_SIZE, remaining))
+                if not chunk:
+                    break
+                f.write(chunk)
+                remaining -= len(chunk)
+
+        # Verify checksum
+        h = hashlib.sha256()
+        with open(upload_path, "rb") as f:
+            while chunk := f.read(_CHUNK_SIZE):
+                h.update(chunk)
+        actual_hash = h.hexdigest()
+
+        if actual_hash != expected_hash:
+            upload_path.unlink(missing_ok=True)
+            self._send_admin_error(
+                400, "CHECKSUM_MISMATCH", "Upload integrity check failed"
+            )
+            return
+
+        # Run import pipeline
+        aes_key, hmac_key = crypto_keys
+        try:
+            from buncker.registry_client import ManifestCache
+            from buncker.transfer import import_response
+
+            result = import_response(
+                upload_path,
+                aes_key=aes_key,
+                hmac_key=hmac_key,
+                store=store,
+                manifest_cache=ManifestCache(store.path),
+            )
+            _log.info(
+                "import_completed",
+                extra={
+                    **self._request_meta(self._auth_level),
+                    "size": upload_path.stat().st_size if upload_path.exists() else 0,
+                    "method": "PUT",
+                },
+            )
+            self._send_json(200, result)
+        except TransferError as e:
+            self._send_admin_error(400, "TRANSFER_ERROR", str(e))
+        except Exception as e:
+            self._send_admin_error(500, "INTERNAL_ERROR", str(e))
+        finally:
+            upload_path.unlink(missing_ok=True)
 
     def _handle_admin_status(self):
         """GET /admin/status - System status."""
