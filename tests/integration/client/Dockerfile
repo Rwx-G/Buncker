@@ -6,6 +6,8 @@ RUN apt-get update && \
         python3 \
         openssh-server \
         docker.io \
+        curl \
+        jq \
         ca-certificates \
         iproute2 \
     && rm -rf /var/lib/apt/lists/*

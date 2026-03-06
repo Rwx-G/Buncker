@@ -147,6 +147,33 @@ def main() -> None:
         help="Grace period in days (default: 30)",
     )
 
+    # api-setup
+    sub_api_setup = subparsers.add_parser(
+        "api-setup", help="Generate API tokens and activate TLS"
+    )
+    sub_api_setup.add_argument(
+        "--cert", type=Path, default=None, help="Path to TLS certificate"
+    )
+    sub_api_setup.add_argument(
+        "--key", type=Path, default=None, help="Path to TLS private key"
+    )
+
+    # api-show
+    sub_api_show = subparsers.add_parser("api-show", help="Display an API token")
+    sub_api_show.add_argument(
+        "token_type",
+        choices=["readonly", "admin"],
+        help="Token type to display",
+    )
+
+    # api-reset
+    sub_api_reset = subparsers.add_parser("api-reset", help="Regenerate an API token")
+    sub_api_reset.add_argument(
+        "token_type",
+        choices=["readonly", "admin"],
+        help="Token type to regenerate",
+    )
+
     # export-ca
     subparsers.add_parser("export-ca", help="Export CA certificate")
 
@@ -166,6 +193,12 @@ def main() -> None:
         _cmd_rotate_keys(args)
     elif args.command == "export-ca":
         _cmd_export_ca(args)
+    elif args.command == "api-setup":
+        _cmd_api_setup(args)
+    elif args.command == "api-show":
+        _cmd_api_show(args)
+    elif args.command == "api-reset":
+        _cmd_api_reset(args)
     else:
         _cmd_proxy(args)
 
@@ -285,6 +318,149 @@ def _cmd_setup(args: argparse.Namespace) -> None:
     print(_c(sep, _DIM))
 
 
+def _cmd_api_setup(args: argparse.Namespace) -> None:
+    """Generate API tokens and activate TLS for LAN access."""
+    config_path = args.config or Path("/etc/buncker/config.json")
+
+    if not config_path.exists():
+        print(f"{_c('Error:', _RED)} Config not found at {config_path}")
+        print("Run 'buncker setup' first.")
+        sys.exit(1)
+
+    config = load_config(config_path)
+
+    # Check if api-setup was already run
+    tokens_path = config_path.parent / "api-tokens.json"
+    if tokens_path.exists():
+        print(f"{_c('Warning:', _YELLOW)} API tokens already exist at {tokens_path}")
+        print("Use 'buncker api-reset' to regenerate individual tokens.")
+        sys.exit(1)
+
+    from buncker.auth import (
+        generate_api_tokens,
+        generate_self_signed_cert,
+        save_api_tokens,
+    )
+
+    # [1/3] Generate tokens
+    print(
+        f"{_c('[1/3]', _BOLD)} Generating API tokens...          ",
+        end="",
+        flush=True,
+    )
+    tokens = generate_api_tokens()
+    save_api_tokens(tokens, tokens_path)
+    print(_c("done", _GREEN))
+
+    # [2/3] TLS setup
+    print(
+        f"{_c('[2/3]', _BOLD)} Configuring TLS...                ",
+        end="",
+        flush=True,
+    )
+    store_path = Path(config["store_path"])
+    tls_dir = store_path / "tls"
+
+    if args.cert and args.key:
+        # User-provided certificate
+        if not args.cert.exists():
+            print(_c("failed", _RED))
+            print(f"  {_c('Error:', _RED)} Certificate not found: {args.cert}")
+            sys.exit(1)
+        if not args.key.exists():
+            print(_c("failed", _RED))
+            print(f"  {_c('Error:', _RED)} Key not found: {args.key}")
+            sys.exit(1)
+        tls_dir.mkdir(parents=True, exist_ok=True)
+        import shutil
+
+        shutil.copy2(args.cert, tls_dir / "server.pem")
+        shutil.copy2(args.key, tls_dir / "server-key.pem")
+        print(_c("done", _GREEN))
+        print(f"  Using provided certificate: {args.cert}")
+    else:
+        # Auto-signed certificate
+        cert_path, key_path, ca_path = generate_self_signed_cert(tls_dir)
+        print(_c("done", _GREEN))
+        print(f"  {_c('Warning:', _YELLOW)} Auto-signed certificate generated.")
+        print("  Clients must trust the CA. Export with: buncker export-ca")
+
+    # [3/3] Update config
+    print(
+        f"{_c('[3/3]', _BOLD)} Updating configuration...          ",
+        end="",
+        flush=True,
+    )
+    config["api"] = {"enabled": True}
+    config["tls"] = True
+    save_config(config, config_path)
+    print(_c("done", _GREEN))
+
+    # Display tokens
+    sep = "=" * 60
+    print()
+    print(_c(sep, _DIM))
+    print()
+    print(f"  {_c('API TOKENS', _BOLD)} - Save these securely.")
+    print("  This is the ONLY time they will be displayed together.")
+    print()
+    print(f"  {_c('Read-only:', _BOLD)} {tokens['readonly']}")
+    print(f"  {_c('Admin:', _BOLD)}     {tokens['admin']}")
+    print()
+    print(f"  Tokens file: {tokens_path}")
+    print(f"  TLS certs:   {tls_dir}")
+    print()
+    print("  Restart the daemon to apply changes:")
+    print("    sudo systemctl restart buncker")
+    print()
+    print(_c(sep, _DIM))
+
+
+def _cmd_api_show(args: argparse.Namespace) -> None:
+    """Display an API token."""
+    config_path = args.config or Path("/etc/buncker/config.json")
+    tokens_path = config_path.parent / "api-tokens.json"
+
+    from buncker.auth import load_api_tokens
+
+    tokens = load_api_tokens(tokens_path)
+    if tokens is None:
+        print(f"{_c('Error:', _RED)} API tokens not found at {tokens_path}")
+        print("Run 'buncker api-setup' first.")
+        sys.exit(1)
+
+    print(tokens[args.token_type])
+
+
+def _cmd_api_reset(args: argparse.Namespace) -> None:
+    """Regenerate an API token."""
+    import logging
+
+    config_path = args.config or Path("/etc/buncker/config.json")
+    tokens_path = config_path.parent / "api-tokens.json"
+
+    from buncker.auth import load_api_tokens, save_api_tokens
+
+    tokens = load_api_tokens(tokens_path)
+    if tokens is None:
+        print(f"{_c('Error:', _RED)} API tokens not found at {tokens_path}")
+        print("Run 'buncker api-setup' first.")
+        sys.exit(1)
+
+    import secrets
+
+    tokens[args.token_type] = secrets.token_hex(32)
+    save_api_tokens(tokens, tokens_path)
+
+    _log = logging.getLogger("buncker.auth")
+    _log.info("api_token_reset", extra={"token_type": args.token_type})
+
+    print(f"New {args.token_type} token: {tokens[args.token_type]}")
+    print()
+    print("The old token is now invalid.")
+    print("Restart the daemon to apply: sudo systemctl restart buncker")
+
+
 def _cmd_prepare(args: argparse.Namespace) -> None:
     """Analyze Dockerfile and generate transfer request in one step."""
     config = load_config(args.config)
@@ -362,6 +538,13 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         output_path=Path(config["store_path"]) / "buncker.log",
     )
 
+    # Refuse to start if API is enabled without TLS
+    api_config = config.get("api", {})
+    if api_config.get("enabled") and not config.get("tls"):
+        print("Error: API authentication is enabled but TLS is not.")
+        print("TLS is mandatory when the API is exposed. Run 'buncker api-setup'.")
+        sys.exit(1)
+
     # Get mnemonic from env or stdin
     mnemonic = os.environ.get("BUNCKER_MNEMONIC")
     if not mnemonic:
@@ -396,6 +579,15 @@ def _cmd_serve(args: argparse.Namespace) -> None:
     # Derive keys from 12-word mnemonic + embedded salt
     aes_key, hmac_key = derive_keys(mnemonic_12, salt)
 
+    # Load API tokens if auth is enabled
+    api_tokens = None
+    api_enabled = api_config.get("enabled", False)
+    if api_enabled:
+        from buncker.auth import load_api_tokens
+
+        config_dir = (args.config or Path("/etc/buncker/config.json")).parent
+        api_tokens = load_api_tokens(config_dir / "api-tokens.json")
+
     # Initialize store and server
     from buncker.server import BunckerServer
     from buncker.store import Store
@@ -409,6 +601,8 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         crypto_keys=(aes_key, hmac_key),
         source_id=config.get("source_id", ""),
         log_path=Path(config["store_path"]) / "buncker.log",
+        api_tokens=api_tokens,
+        api_enabled=api_enabled,
     )
 
     # Handle SIGTERM/SIGINT

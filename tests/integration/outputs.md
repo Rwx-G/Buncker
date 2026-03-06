@@ -114,7 +114,7 @@ Transfer request saved to buncker-request.json.enc
 
 ```json
 {
-  "version": "0.7.0",
+  "version": "0.8.0",
   "source_id": "buncker-1ac37e30",
   "store_path": "/var/lib/buncker",
   "blob_count": 2,

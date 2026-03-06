@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-03-06
+
+### Added
+
+- `buncker api-setup` command: generates 256-bit Bearer tokens (read-only + admin) and activates TLS with auto-signed CA or user-provided certificates
+- `buncker api-show readonly|admin` and `buncker api-reset readonly|admin` for token management
+- Auth middleware on `/admin/*` endpoints with constant-time token comparison (`hmac.compare_digest`)
+- Endpoint access matrix: read-only token for status/logs/gc-report, admin token for analyze/generate-manifest/import/gc-execute
+- `/v2/*` OCI endpoints remain always unauthenticated regardless of auth config
+- Audit trail enrichment: all API log entries now include `client_ip`, `auth_level`, `user_agent`
+- `api_auth_rejected` log event for failed authentication attempts
+- Remote Dockerfile analysis via `dockerfile_content` field in `POST /admin/analyze` (path mode restricted to localhost)
+- `PUT /admin/import` endpoint: streaming upload with SHA256 checksum verification (`X-Buncker-Checksum` header) and `Content-Range` resume support
+- E2E tests for full authenticated cycle, access control, token reset, and backward compatibility
+- README restructured with two explicit Quick Start flows (Direct mode and LAN client mode)
+- Docker integration test Phase 2: LAN client flow with auth enforcement (31 checks total)
+
+### Security
+
+- TLS is mandatory when API auth is enabled (daemon refuses to start without it)
+- Token values are never logged (NFR7 compliance)
+- `api-tokens.json` file permissions set to 0600
+
 ## [0.7.0] - 2026-03-05
 
 ### Added
@@ -175,7 +198,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Rwx-G/Buncker/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Rwx-G/Buncker/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/Rwx-G/Buncker/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Rwx-G/Buncker/compare/v0.5.0...v0.6.0
