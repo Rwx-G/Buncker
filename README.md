@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/python-%3E%3D3.11-3776AB.svg?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/platform-Debian%2FUbuntu-A81D33.svg?logo=debian&logoColor=white" alt="Platform">
   <img src="https://img.shields.io/badge/packaging-.deb-orange.svg" alt="Packaging">
-  <img src="https://img.shields.io/badge/status-v0.7.0-brightgreen.svg" alt="Status">
+  <img src="https://img.shields.io/badge/status-v0.8.0-brightgreen.svg" alt="Status">
 </p>
 
 ---
@@ -18,6 +18,13 @@ Buncker analyzes Dockerfiles, identifies missing layers in your offline store, a
 Nothing equivalent exists: [Hauler](https://github.com/hauler-dev/hauler) does bulk snapshot & ship but has no Dockerfile resolver and no delta approach.
 
 ## How It Works
+
+Buncker supports two operating modes depending on your setup:
+
+- **Direct mode** - the operator works directly on the buncker server via CLI
+- **LAN client mode** - the operator works from any machine on the offline LAN via `curl` + Bearer tokens (no SSH needed)
+
+Both modes use the same transfer pipeline: encrypted request out, blobs fetched online, encrypted response back.
 
 ```
  OFFLINE (isolated LAN)             USB             ONLINE (connected machine)
@@ -66,10 +73,10 @@ Download the latest `.deb` files from [GitHub Releases](https://github.com/Rwx-G
 
 ```bash
 # Offline machine
-sudo dpkg -i buncker_0.7.0_all.deb
+sudo dpkg -i buncker_0.8.0_all.deb
 
 # Online machine
-sudo dpkg -i buncker-fetch_0.7.0_all.deb
+sudo dpkg -i buncker-fetch_0.8.0_all.deb
 ```
 
 If dependencies are missing, fix them with:
@@ -91,7 +98,9 @@ sudo dpkg -i dist/buncker-fetch_*_all.deb
 
 ## Quick Start
 
-**1. Offline machine - setup**
+### Initial setup (buncker server - offline machine)
+
+This step is the same for both operating modes.
 
 ```bash
 sudo buncker setup
@@ -124,79 +133,102 @@ Setup automatically enables and starts the daemon via systemd. The mnemonic
 is also saved to `/etc/buncker/env` (mode 0600) so the service can restart
 without manual re-entry.
 
-**2. Analyze a Dockerfile and generate a transfer request**
+---
+
+### Mode 1: Direct (CLI on buncker server)
+
+The operator works directly on the buncker server. Transfers go through USB.
+
+**1. Analyze a Dockerfile and generate a transfer request**
 
 ```bash
 buncker analyze ./Dockerfile --build-arg NODE_VERSION=20
+buncker generate-manifest --output /media/usb/
 ```
 
-Expected output:
-
-```json
-{
-  "images": ["docker.io/library/node:20-bookworm-slim"],
-  "missing_blobs": 12,
-  "total_size": 48230400
-}
-```
-
-```bash
-buncker generate-manifest --output /media/usb/request.json.enc
-```
-
-Expected output:
-
-```
-Transfer request saved to /media/usb/request.json.enc
-```
-
-**3. Online machine - fetch**
+**2. Online machine - pair and fetch**
 
 ```bash
 buncker-fetch pair
-```
+# Enter the 16-word mnemonic when prompted
 
-Expected output:
-
-```
-Enter the 16-word mnemonic (space-separated):
-> pride evoke tumble stool coach enact lazy ribbon silent split orphan peace flavor broom render desk
-  status: success
-  message: Pairing successful
-```
-
-```bash
 buncker-fetch fetch /media/usb/request.json.enc --output /media/usb/
 ```
 
-Expected output:
-
-```
-  status: success
-  downloaded: 12
-  skipped: 0
-  errors: 0
-  response_file: /media/usb/buncker-response.tar.enc
-```
-
-**4. Back offline - import and build**
+**3. Back offline - import and build**
 
 ```bash
 buncker import /media/usb/buncker-response.tar.enc
+docker build -t myapp .     # works without internet
 ```
 
-Expected output:
+---
 
-```json
-{
-  "imported": 12,
-  "skipped": 0,
-  "errors": []
-}
-```
+### Mode 2: LAN client (curl + Bearer tokens)
+
+The operator works from any machine on the isolated LAN - no SSH to the
+buncker server needed. All admin operations go through HTTP with Bearer
+token authentication.
+
+**1. Enable API auth on the buncker server**
 
 ```bash
-docker build -t myapp .     # works without internet
+sudo buncker api-setup
+# Generates admin + readonly tokens, activates TLS
+
+# Show the admin token
+buncker api-show admin
+
+# Export CA certificate for LAN clients
+buncker export-ca > buncker-ca.pem
+# Distribute buncker-ca.pem to client machines
+```
+
+**2. From LAN client - analyze and generate transfer request**
+
+```bash
+# Analyze a Dockerfile (send content, not a file path)
+curl -X POST -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"dockerfile_content": "FROM alpine:3.19\nRUN apk add curl"}' \
+  https://buncker:5000/admin/analyze --cacert buncker-ca.pem
+
+# Download the encrypted transfer request
+curl -X POST -H "Authorization: Bearer <admin-token>" \
+  -o request.json.enc \
+  https://buncker:5000/admin/generate-manifest --cacert buncker-ca.pem
+```
+
+**3. Online machine - pair and fetch** (same as direct mode)
+
+```bash
+buncker-fetch pair
+# Enter the 16-word mnemonic when prompted
+
+buncker-fetch fetch request.json.enc --output ./
+```
+
+**4. From LAN client - upload response with checksum verification**
+
+```bash
+CHECKSUM=$(sha256sum buncker-response.tar.enc | cut -d' ' -f1)
+curl -T buncker-response.tar.enc \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "X-Buncker-Checksum: sha256:$CHECKSUM" \
+  https://buncker:5000/admin/import --cacert buncker-ca.pem
+```
+
+**5. Build** (from any Docker host on the LAN)
+
+```bash
+docker build -t myapp .     # pulls from buncker registry, no internet
+```
+
+**Check status** (read-only token is sufficient):
+
+```bash
+curl -H "Authorization: Bearer <readonly-token>" \
+  https://buncker:5000/admin/status --cacert buncker-ca.pem
 ```
 
 ## Configuration
@@ -401,45 +433,6 @@ sudo journalctl -u buncker -f
 | Blobs not found after import | OCI store path mismatch | Verify `store_path` in config matches daemon working directory |
 | `docker build` fails after import | Daemon not serving imported blobs | Check `buncker status` and verify daemon is running |
 | High disk usage on online machine | Blob cache growing | Run `buncker-fetch cache clean --older-than 7d` |
-
-## LAN Client Operations
-
-After running `buncker api-setup`, remote clients on the LAN can use `curl`
-to interact with the admin API. TLS is mandatory when auth is enabled.
-
-```bash
-# Setup API (generates tokens + TLS cert)
-sudo buncker api-setup
-
-# Export CA for clients
-buncker export-ca > buncker-ca.pem
-```
-
-### Remote analysis (from LAN client)
-
-```bash
-# Analyze a Dockerfile (send content, not path)
-curl -X POST -H "Authorization: Bearer <admin-token>" \
-  -H "Content-Type: application/json" \
-  -d '{"dockerfile_content": "FROM alpine:3.19\nRUN apk add curl"}' \
-  https://buncker:5000/admin/analyze --cacert buncker-ca.pem
-
-# Download transfer manifest
-curl -H "Authorization: Bearer <admin-token>" \
-  -o request.json.enc \
-  -X POST https://buncker:5000/admin/generate-manifest --cacert buncker-ca.pem
-
-# Upload response (streaming with checksum)
-CHECKSUM=$(sha256sum response.tar.enc | cut -d' ' -f1)
-curl -T response.tar.enc \
-  -H "Authorization: Bearer <admin-token>" \
-  -H "X-Buncker-Checksum: sha256:$CHECKSUM" \
-  https://buncker:5000/admin/import --cacert buncker-ca.pem
-
-# Check status (read-only token works)
-curl -H "Authorization: Bearer <readonly-token>" \
-  https://buncker:5000/admin/status --cacert buncker-ca.pem
-```
 
 ## Development
 
