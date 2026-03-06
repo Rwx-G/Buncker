@@ -86,10 +86,12 @@ def generate_self_signed_cert(tls_dir: Path) -> tuple[Path, Path, Path]:
 
     # Generate CA key and certificate
     ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    ca_name = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, "Buncker CA"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Buncker"),
-    ])
+    ca_name = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, "Buncker CA"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Buncker"),
+        ]
+    )
     ca_cert = (
         x509.CertificateBuilder()
         .subject_name(ca_name)
@@ -104,10 +106,12 @@ def generate_self_signed_cert(tls_dir: Path) -> tuple[Path, Path, Path]:
 
     # Generate server key and certificate
     server_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    server_name = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, "buncker"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Buncker"),
-    ])
+    server_name = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, "buncker"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Buncker"),
+        ]
+    )
     server_cert = (
         x509.CertificateBuilder()
         .subject_name(server_name)
@@ -117,11 +121,13 @@ def generate_self_signed_cert(tls_dir: Path) -> tuple[Path, Path, Path]:
         .not_valid_before(now)
         .not_valid_after(now + ten_years)
         .add_extension(
-            x509.SubjectAlternativeName([
-                x509.DNSName("buncker"),
-                x509.DNSName("localhost"),
-                x509.IPAddress(ipaddress_from_string("127.0.0.1")),
-            ]),
+            x509.SubjectAlternativeName(
+                [
+                    x509.DNSName("buncker"),
+                    x509.DNSName("localhost"),
+                    x509.IPAddress(ipaddress_from_string("127.0.0.1")),
+                ]
+            ),
             critical=False,
         )
         .sign(ca_key, hashes.SHA256())

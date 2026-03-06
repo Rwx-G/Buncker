@@ -92,9 +92,8 @@ class BunckerHandler(BaseHTTPRequestHandler):
             return
 
         # Auth check for admin endpoints
-        if path.startswith("/admin/"):
-            if self._check_auth() is None:
-                return
+        if path.startswith("/admin/") and self._check_auth() is None:
+            return
 
         # Admin GET routes
         if path == "/admin/status":
@@ -152,9 +151,8 @@ class BunckerHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
 
         # Auth check for admin endpoints
-        if path.startswith("/admin/"):
-            if self._check_auth() is None:
-                return
+        if path.startswith("/admin/") and self._check_auth() is None:
+            return
 
         if path == "/admin/analyze":
             self._handle_admin_analyze()
@@ -180,9 +178,8 @@ class BunckerHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
 
         # Auth check for admin endpoints
-        if path.startswith("/admin/"):
-            if self._check_auth() is None:
-                return
+        if path.startswith("/admin/") and self._check_auth() is None:
+            return
 
         if path == "/admin/import":
             self._handle_admin_import_put()
@@ -351,7 +348,9 @@ class BunckerHandler(BaseHTTPRequestHandler):
 
             # Path traversal prevention
             if ".." in Path(dockerfile).parts:
-                self._send_admin_error(400, "INVALID_PATH", "path traversal not allowed")
+                self._send_admin_error(
+                    400, "INVALID_PATH", "path traversal not allowed"
+                )
                 return
             dockerfile_path = Path(dockerfile)
         else:
@@ -571,7 +570,8 @@ class BunckerHandler(BaseHTTPRequestHandler):
         if not checksum_header.startswith("sha256:"):
             self._drain_body()
             self._send_admin_error(
-                400, "MISSING_CHECKSUM",
+                400,
+                "MISSING_CHECKSUM",
                 "X-Buncker-Checksum: sha256:<hex> header required",
             )
             return
@@ -621,7 +621,8 @@ class BunckerHandler(BaseHTTPRequestHandler):
             current_size = upload_path.stat().st_size if upload_path.exists() else 0
             if start != current_size:
                 self._send_admin_error(
-                    400, "RANGE_MISMATCH",
+                    400,
+                    "RANGE_MISMATCH",
                     f"expected offset {current_size}, got {start}",
                 )
                 return

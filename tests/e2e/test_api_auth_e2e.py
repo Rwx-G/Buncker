@@ -7,9 +7,7 @@ Tests the complete auth lifecycle:
 
 from __future__ import annotations
 
-import hashlib
 import json
-import os
 import urllib.request
 from unittest import mock
 from urllib.error import HTTPError
@@ -18,7 +16,7 @@ import pytest
 
 from buncker.server import BunckerServer
 from buncker.store import Store
-from shared.crypto import derive_keys, generate_mnemonic, split_mnemonic
+from shared.crypto import derive_keys, split_mnemonic
 
 
 @pytest.mark.e2e
@@ -34,11 +32,16 @@ class TestAuthenticatedCycle:
         with mock.patch(
             "sys.argv",
             [
-                "buncker", "--config", str(config_path),
-                "setup", "--store-path", str(store_path),
+                "buncker",
+                "--config",
+                str(config_path),
+                "setup",
+                "--store-path",
+                str(store_path),
             ],
         ):
             from buncker.__main__ import main
+
             main()
 
         with mock.patch(
@@ -60,21 +63,27 @@ class TestAuthenticatedCycle:
 
         store = Store(store_path)
         srv = BunckerServer(
-            bind="127.0.0.1", port=0, store=store,
+            bind="127.0.0.1",
+            port=0,
+            store=store,
             crypto_keys=(aes_key, hmac_key),
             source_id=config["source_id"],
-            api_tokens=tokens, api_enabled=True,
+            api_tokens=tokens,
+            api_enabled=True,
         )
         srv.start()
         base = f"http://127.0.0.1:{srv.port}"
 
         try:
             # -- Admin token: analyze with content mode --
-            data = json.dumps({
-                "dockerfile_content": "FROM scratch\n",
-            }).encode()
+            data = json.dumps(
+                {
+                    "dockerfile_content": "FROM scratch\n",
+                }
+            ).encode()
             req = urllib.request.Request(
-                f"{base}/admin/analyze", data=data,
+                f"{base}/admin/analyze",
+                data=data,
                 headers={
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {tokens['admin']}",
@@ -109,8 +118,12 @@ class TestAccessControl:
         tokens = {"readonly": "ro_" + "a" * 61, "admin": "ad_" + "b" * 61}
         store = Store(tmp_path / "store")
         srv = BunckerServer(
-            bind="127.0.0.1", port=0, store=store,
-            source_id="test", api_tokens=tokens, api_enabled=True,
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+            api_tokens=tokens,
+            api_enabled=True,
         )
         srv.start()
         base = f"http://127.0.0.1:{srv.port}"
@@ -127,7 +140,8 @@ class TestAccessControl:
             # RO token on POST /admin/analyze -> 403
             data = json.dumps({"dockerfile_content": "FROM scratch\n"}).encode()
             req = urllib.request.Request(
-                f"{base}/admin/analyze", data=data,
+                f"{base}/admin/analyze",
+                data=data,
                 headers={
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {tokens['readonly']}",
@@ -162,11 +176,16 @@ class TestTokenReset:
         with mock.patch(
             "sys.argv",
             [
-                "buncker", "--config", str(config_path),
-                "setup", "--store-path", str(store_path),
+                "buncker",
+                "--config",
+                str(config_path),
+                "setup",
+                "--store-path",
+                str(store_path),
             ],
         ):
             from buncker.__main__ import main
+
             main()
 
         with mock.patch(
@@ -191,8 +210,12 @@ class TestTokenReset:
         # Start server with new tokens
         store = Store(store_path)
         srv = BunckerServer(
-            bind="127.0.0.1", port=0, store=store,
-            source_id="test", api_tokens=new_tokens, api_enabled=True,
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+            api_tokens=new_tokens,
+            api_enabled=True,
         )
         srv.start()
         base = f"http://127.0.0.1:{srv.port}"
@@ -226,8 +249,11 @@ class TestBackwardCompatibility:
     def test_no_auth_without_api_setup(self, tmp_path):
         store = Store(tmp_path / "store")
         srv = BunckerServer(
-            bind="127.0.0.1", port=0, store=store,
-            source_id="test", api_enabled=False,
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+            api_enabled=False,
         )
         srv.start()
         base = f"http://127.0.0.1:{srv.port}"

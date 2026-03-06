@@ -68,9 +68,7 @@ class TestRemoteDockerfileAnalysis:
         from buncker.store import Store
 
         store = Store(tmp_path / "store")
-        srv = BunckerServer(
-            bind="127.0.0.1", port=0, store=store, source_id="test"
-        )
+        srv = BunckerServer(bind="127.0.0.1", port=0, store=store, source_id="test")
         srv.start()
         return srv
 
@@ -78,12 +76,15 @@ class TestRemoteDockerfileAnalysis:
         srv = self._make_server(tmp_path)
         try:
             url = f"http://127.0.0.1:{srv.port}/admin/analyze"
-            data = json.dumps({
-                "dockerfile_content": "FROM scratch\n",
-                "build_args": {},
-            }).encode()
+            data = json.dumps(
+                {
+                    "dockerfile_content": "FROM scratch\n",
+                    "build_args": {},
+                }
+            ).encode()
             req = urllib.request.Request(
-                url, data=data,
+                url,
+                data=data,
                 headers={"Content-Type": "application/json"},
             )
             resp = urllib.request.urlopen(req)
@@ -97,12 +98,15 @@ class TestRemoteDockerfileAnalysis:
         srv = self._make_server(tmp_path)
         try:
             url = f"http://127.0.0.1:{srv.port}/admin/analyze"
-            data = json.dumps({
-                "dockerfile_content": "ARG BASE=alpine:3.19\nFROM $BASE\n",
-                "build_args": {"BASE": "debian:12"},
-            }).encode()
+            data = json.dumps(
+                {
+                    "dockerfile_content": "ARG BASE=alpine:3.19\nFROM $BASE\n",
+                    "build_args": {"BASE": "debian:12"},
+                }
+            ).encode()
             req = urllib.request.Request(
-                url, data=data,
+                url,
+                data=data,
                 headers={"Content-Type": "application/json"},
             )
             resp = urllib.request.urlopen(req)
@@ -122,7 +126,8 @@ class TestRemoteDockerfileAnalysis:
             url = f"http://127.0.0.1:{srv.port}/admin/analyze"
             data = json.dumps({"dockerfile": str(dockerfile)}).encode()
             req = urllib.request.Request(
-                url, data=data,
+                url,
+                data=data,
                 headers={"Content-Type": "application/json"},
             )
             resp = urllib.request.urlopen(req)
@@ -136,7 +141,8 @@ class TestRemoteDockerfileAnalysis:
             url = f"http://127.0.0.1:{srv.port}/admin/analyze"
             data = json.dumps({"build_args": {}}).encode()
             req = urllib.request.Request(
-                url, data=data,
+                url,
+                data=data,
                 headers={"Content-Type": "application/json"},
             )
             with pytest.raises(HTTPError) as exc_info:
@@ -159,11 +165,14 @@ class TestRemoteDockerfileAnalysis:
         try:
             # First analyze
             url = f"http://127.0.0.1:{srv.port}/admin/analyze"
-            data = json.dumps({
-                "dockerfile_content": "FROM alpine:3.19\n",
-            }).encode()
+            data = json.dumps(
+                {
+                    "dockerfile_content": "FROM alpine:3.19\n",
+                }
+            ).encode()
             req = urllib.request.Request(
-                url, data=data,
+                url,
+                data=data,
                 headers={"Content-Type": "application/json"},
             )
             urllib.request.urlopen(req)
@@ -171,7 +180,8 @@ class TestRemoteDockerfileAnalysis:
             # Then generate manifest
             url2 = f"http://127.0.0.1:{srv.port}/admin/generate-manifest"
             req2 = urllib.request.Request(
-                url2, data=b"{}",
+                url2,
+                data=b"{}",
                 headers={"Content-Type": "application/json"},
             )
             resp = urllib.request.urlopen(req2)
@@ -192,9 +202,7 @@ class TestPutImport:
         from buncker.store import Store
 
         store = Store(tmp_path / "store")
-        srv = BunckerServer(
-            bind="127.0.0.1", port=0, store=store, source_id="test"
-        )
+        srv = BunckerServer(bind="127.0.0.1", port=0, store=store, source_id="test")
         srv.start()
         return srv
 
@@ -204,7 +212,9 @@ class TestPutImport:
             url = f"http://127.0.0.1:{srv.port}/admin/import"
             data = b"some data"
             req = urllib.request.Request(
-                url, data=data, method="PUT",
+                url,
+                data=data,
+                method="PUT",
                 headers={
                     "Content-Type": "application/octet-stream",
                     "Content-Length": str(len(data)),
@@ -225,7 +235,9 @@ class TestPutImport:
             url = f"http://127.0.0.1:{srv.port}/admin/import"
             data = b"some data"
             req = urllib.request.Request(
-                url, data=data, method="PUT",
+                url,
+                data=data,
+                method="PUT",
                 headers={
                     "Content-Type": "application/octet-stream",
                     "Content-Length": str(len(data)),
@@ -241,14 +253,16 @@ class TestPutImport:
             srv.stop()
 
     def test_put_with_correct_checksum_accepted(self, tmp_path):
-        """PUT with correct checksum is accepted (even if import fails due to invalid data)."""
+        """PUT with correct checksum is accepted."""
         srv = self._make_server(tmp_path)
         try:
             data = b"not a real tar.enc file"
             checksum = hashlib.sha256(data).hexdigest()
             url = f"http://127.0.0.1:{srv.port}/admin/import"
             req = urllib.request.Request(
-                url, data=data, method="PUT",
+                url,
+                data=data,
+                method="PUT",
                 headers={
                     "Content-Type": "application/octet-stream",
                     "Content-Length": str(len(data)),
@@ -271,8 +285,12 @@ class TestPutImport:
         tokens = {"readonly": "ro_" + "a" * 61, "admin": "ad_" + "b" * 61}
         store = Store(tmp_path / "store")
         srv = BunckerServer(
-            bind="127.0.0.1", port=0, store=store,
-            source_id="test", api_tokens=tokens, api_enabled=True,
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+            api_tokens=tokens,
+            api_enabled=True,
         )
         srv.start()
         try:
@@ -280,7 +298,9 @@ class TestPutImport:
             checksum = hashlib.sha256(data).hexdigest()
             url = f"http://127.0.0.1:{srv.port}/admin/import"
             req = urllib.request.Request(
-                url, data=data, method="PUT",
+                url,
+                data=data,
+                method="PUT",
                 headers={
                     "Content-Type": "application/octet-stream",
                     "Content-Length": str(len(data)),
@@ -300,7 +320,8 @@ class TestPutImport:
             data = b"not a valid import"
             url = f"http://127.0.0.1:{srv.port}/admin/import"
             req = urllib.request.Request(
-                url, data=data,
+                url,
+                data=data,
                 headers={
                     "Content-Type": "application/octet-stream",
                     "Content-Length": str(len(data)),

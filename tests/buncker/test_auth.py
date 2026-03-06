@@ -219,8 +219,12 @@ class TestApiSetupCommand:
         # Create dummy cert/key files
         cert_file = tmp_path / "my-cert.pem"
         key_file = tmp_path / "my-key.pem"
-        cert_file.write_text("-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----\n")
-        key_file.write_text("-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n")
+        cert_file.write_text(
+            "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----\n"
+        )
+        key_file.write_text(
+            "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n"
+        )
 
         with mock.patch(
             "sys.argv",
@@ -338,33 +342,25 @@ class TestAuthenticateRequest:
         assert level == "local"
 
     def test_admin_token_on_admin_endpoint(self):
-        handler = self._make_handler(
-            "/admin/analyze", "POST", "Bearer admin_token"
-        )
+        handler = self._make_handler("/admin/analyze", "POST", "Bearer admin_token")
         tokens = {"readonly": "ro_token", "admin": "admin_token"}
         level = authenticate_request(handler, tokens, api_enabled=True)
         assert level == "admin"
 
     def test_admin_token_on_readonly_endpoint(self):
-        handler = self._make_handler(
-            "/admin/status", "GET", "Bearer admin_token"
-        )
+        handler = self._make_handler("/admin/status", "GET", "Bearer admin_token")
         tokens = {"readonly": "ro_token", "admin": "admin_token"}
         level = authenticate_request(handler, tokens, api_enabled=True)
         assert level == "admin"
 
     def test_readonly_token_on_readonly_endpoint(self):
-        handler = self._make_handler(
-            "/admin/status", "GET", "Bearer ro_token"
-        )
+        handler = self._make_handler("/admin/status", "GET", "Bearer ro_token")
         tokens = {"readonly": "ro_token", "admin": "admin_token"}
         level = authenticate_request(handler, tokens, api_enabled=True)
         assert level == "readonly"
 
     def test_readonly_token_on_admin_endpoint_forbidden(self):
-        handler = self._make_handler(
-            "/admin/analyze", "POST", "Bearer ro_token"
-        )
+        handler = self._make_handler("/admin/analyze", "POST", "Bearer ro_token")
         tokens = {"readonly": "ro_token", "admin": "admin_token"}
         with pytest.raises(AuthError) as exc_info:
             authenticate_request(handler, tokens, api_enabled=True)
@@ -372,9 +368,7 @@ class TestAuthenticateRequest:
         assert exc_info.value.code == "FORBIDDEN"
 
     def test_invalid_token_unauthorized(self):
-        handler = self._make_handler(
-            "/admin/status", "GET", "Bearer wrong_token"
-        )
+        handler = self._make_handler("/admin/status", "GET", "Bearer wrong_token")
         tokens = {"readonly": "ro_token", "admin": "admin_token"}
         with pytest.raises(AuthError) as exc_info:
             authenticate_request(handler, tokens, api_enabled=True)
@@ -498,11 +492,16 @@ class TestApiShowCommand:
         with mock.patch(
             "sys.argv",
             [
-                "buncker", "--config", str(config_path),
-                "setup", "--store-path", str(store_path),
+                "buncker",
+                "--config",
+                str(config_path),
+                "setup",
+                "--store-path",
+                str(store_path),
             ],
         ):
             from buncker.__main__ import main
+
             main()
         # Run api-setup
         with mock.patch(
@@ -522,6 +521,7 @@ class TestApiShowCommand:
             ["buncker", "--config", str(config_path), "api-show", "readonly"],
         ):
             from buncker.__main__ import main
+
             main()
 
         output = capsys.readouterr().out.strip()
@@ -537,6 +537,7 @@ class TestApiShowCommand:
             ["buncker", "--config", str(config_path), "api-show", "admin"],
         ):
             from buncker.__main__ import main
+
             main()
 
         output = capsys.readouterr().out.strip()
@@ -544,16 +545,23 @@ class TestApiShowCommand:
 
     def test_api_show_without_setup_fails(self, tmp_path):
         config_path = tmp_path / "config.json"
-        config_path.write_text(json.dumps({
-            "port": 5000, "max_workers": 1,
-            "store_path": str(tmp_path), "log_level": "INFO",
-        }))
+        config_path.write_text(
+            json.dumps(
+                {
+                    "port": 5000,
+                    "max_workers": 1,
+                    "store_path": str(tmp_path),
+                    "log_level": "INFO",
+                }
+            )
+        )
         with mock.patch(
             "sys.argv",
             ["buncker", "--config", str(config_path), "api-show", "readonly"],
         ):
             with pytest.raises(SystemExit) as exc_info:
                 from buncker.__main__ import main
+
                 main()
             assert exc_info.value.code == 1
 
@@ -567,11 +575,16 @@ class TestApiResetCommand:
         with mock.patch(
             "sys.argv",
             [
-                "buncker", "--config", str(config_path),
-                "setup", "--store-path", str(store_path),
+                "buncker",
+                "--config",
+                str(config_path),
+                "setup",
+                "--store-path",
+                str(store_path),
             ],
         ):
             from buncker.__main__ import main
+
             main()
         with mock.patch(
             "sys.argv",
@@ -590,6 +603,7 @@ class TestApiResetCommand:
             ["buncker", "--config", str(config_path), "api-reset", "readonly"],
         ):
             from buncker.__main__ import main
+
             main()
 
         new_tokens = json.loads(tokens_path.read_text())
@@ -606,6 +620,7 @@ class TestApiResetCommand:
             ["buncker", "--config", str(config_path), "api-reset", "admin"],
         ):
             from buncker.__main__ import main
+
             main()
 
         new_tokens = json.loads(tokens_path.read_text())
@@ -614,16 +629,23 @@ class TestApiResetCommand:
 
     def test_api_reset_without_setup_fails(self, tmp_path):
         config_path = tmp_path / "config.json"
-        config_path.write_text(json.dumps({
-            "port": 5000, "max_workers": 1,
-            "store_path": str(tmp_path), "log_level": "INFO",
-        }))
+        config_path.write_text(
+            json.dumps(
+                {
+                    "port": 5000,
+                    "max_workers": 1,
+                    "store_path": str(tmp_path),
+                    "log_level": "INFO",
+                }
+            )
+        )
         with mock.patch(
             "sys.argv",
             ["buncker", "--config", str(config_path), "api-reset", "admin"],
         ):
             with pytest.raises(SystemExit) as exc_info:
                 from buncker.__main__ import main
+
                 main()
             assert exc_info.value.code == 1
 
@@ -639,6 +661,7 @@ class TestApiResetCommand:
             ["buncker", "--config", str(config_path), "api-reset", "admin"],
         ):
             from buncker.__main__ import main
+
             main()
 
         new_tokens = json.loads(tokens_path.read_text())
@@ -649,9 +672,12 @@ class TestApiResetCommand:
 
         store = Store(tmp_path / "store")
         srv = BunckerServer(
-            bind="127.0.0.1", port=0, store=store,
+            bind="127.0.0.1",
+            port=0,
+            store=store,
             source_id="test",
-            api_tokens=new_tokens, api_enabled=True,
+            api_tokens=new_tokens,
+            api_enabled=True,
         )
         srv.start()
         try:

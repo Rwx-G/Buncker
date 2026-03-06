@@ -14,7 +14,6 @@ import hashlib
 import json
 import os
 import urllib.request
-from pathlib import Path
 from urllib.error import HTTPError
 
 import pytest
@@ -29,13 +28,7 @@ from buncker_fetch.transfer import build_response, process_request
 from shared.crypto import derive_keys, generate_mnemonic
 
 from .conftest import (
-    BLOB_A_DATA,
-    BLOB_A_DIGEST,
-    BLOB_B_DATA,
-    BLOB_B_DIGEST,
     BLOB_REGISTRY,
-    CONFIG_DATA,
-    CONFIG_DIGEST,
     SAMPLE_MANIFEST,
 )
 
@@ -116,9 +109,7 @@ def _http_put(
 def _setup_store_with_manifest(store: Store) -> ManifestCache:
     """Cache the sample manifest in the store for resolver."""
     mc = ManifestCache(store.path)
-    mc.cache_manifest(
-        "test.registry.io", "myapp", "v1", "linux/amd64", SAMPLE_MANIFEST
-    )
+    mc.cache_manifest("test.registry.io", "myapp", "v1", "linux/amd64", SAMPLE_MANIFEST)
     return mc
 
 
@@ -147,7 +138,7 @@ class TestGlobalFlowNoAuth:
         aes_key, hmac_key = derive_keys(mnemonic, salt, iterations=1000)
 
         store = Store(tmp_path / "store")
-        mc = _setup_store_with_manifest(store)
+        _setup_store_with_manifest(store)
 
         # Start server WITHOUT auth
         srv = BunckerServer(
@@ -189,9 +180,7 @@ class TestGlobalFlowNoAuth:
             req_path = tmp_path / "request.json.enc"
             req_path.write_bytes(enc_request)
 
-            request_data = process_request(
-                req_path, aes_key=aes_key, hmac_key=hmac_key
-            )
+            request_data = process_request(req_path, aes_key=aes_key, hmac_key=hmac_key)
             assert request_data["source_id"] == "e2e-no-auth"
             assert len(request_data["blobs"]) == 3
 
@@ -250,14 +239,14 @@ class TestGlobalFlowWithAuth:
     """Full cycle through the HTTP server WITH API auth (LAN client flow)."""
 
     def test_full_http_cycle_with_auth(self, tmp_path, mock_registry):
-        """api-setup -> analyze (content) -> generate -> fetch -> PUT import -> OCI pull."""
+        """api-setup -> analyze -> generate -> fetch -> PUT import."""
         # -- Setup --
         mnemonic = generate_mnemonic()
         salt = os.urandom(32)
         aes_key, hmac_key = derive_keys(mnemonic, salt, iterations=1000)
 
         store = Store(tmp_path / "store")
-        mc = _setup_store_with_manifest(store)
+        _setup_store_with_manifest(store)
 
         tokens = {
             "readonly": "ro_" + os.urandom(30).hex(),
@@ -335,9 +324,7 @@ class TestGlobalFlowWithAuth:
             req_path = tmp_path / "request.json.enc"
             req_path.write_bytes(enc_request)
 
-            request_data = process_request(
-                req_path, aes_key=aes_key, hmac_key=hmac_key
-            )
+            request_data = process_request(req_path, aes_key=aes_key, hmac_key=hmac_key)
             assert request_data["source_id"] == "e2e-auth"
             assert len(request_data["blobs"]) == 3
 
@@ -426,7 +413,7 @@ class TestGlobalFlowAuthTransition:
     """Test transitioning from no-auth to auth mode."""
 
     def test_transition_no_auth_to_auth(self, tmp_path, mock_registry):
-        """Server without auth -> stops -> restarts with auth -> old OCI data still served."""
+        """No-auth to auth transition: old OCI data still served."""
         mnemonic = generate_mnemonic()
         salt = os.urandom(32)
         aes_key, hmac_key = derive_keys(mnemonic, salt, iterations=1000)
@@ -502,9 +489,7 @@ class TestGlobalFlowAuthTransition:
             assert exc_info.value.code == 401
 
             # Admin with token works
-            status = json.loads(
-                _http_get(base, "/admin/status", token=tokens["admin"])
-            )
+            status = json.loads(_http_get(base, "/admin/status", token=tokens["admin"]))
             assert status["blob_count"] == 3
 
         finally:

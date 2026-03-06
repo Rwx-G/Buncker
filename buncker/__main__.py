@@ -336,7 +336,11 @@ def _cmd_api_setup(args: argparse.Namespace) -> None:
         print("Use 'buncker api-reset' to regenerate individual tokens.")
         sys.exit(1)
 
-    from buncker.auth import generate_api_tokens, generate_self_signed_cert, save_api_tokens
+    from buncker.auth import (
+        generate_api_tokens,
+        generate_self_signed_cert,
+        save_api_tokens,
+    )
 
     # [1/3] Generate tokens
     print(
@@ -378,12 +382,8 @@ def _cmd_api_setup(args: argparse.Namespace) -> None:
         # Auto-signed certificate
         cert_path, key_path, ca_path = generate_self_signed_cert(tls_dir)
         print(_c("done", _GREEN))
-        print(
-            f"  {_c('Warning:', _YELLOW)} Auto-signed certificate generated."
-        )
-        print(
-            "  Clients must trust the CA. Export with: buncker export-ca"
-        )
+        print(f"  {_c('Warning:', _YELLOW)} Auto-signed certificate generated.")
+        print("  Clients must trust the CA. Export with: buncker export-ca")
 
     # [3/3] Update config
     print(
