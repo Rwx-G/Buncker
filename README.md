@@ -299,6 +299,9 @@ references as in Approach 1.
 | `buncker gc --execute` | Delete reported inactive blobs |
 | `buncker rotate-keys` | Generate a new mnemonic and deprecate old keys |
 | `buncker export-ca` | Print CA certificate to stdout (TLS mode only) |
+| `buncker api-setup` | Generate API tokens and activate TLS for LAN access |
+| `buncker api-show readonly\|admin` | Display an API token |
+| `buncker api-reset readonly\|admin` | Regenerate an API token |
 
 **Flags:**
 
@@ -310,6 +313,8 @@ references as in Approach 1.
 | `--inactive-days N` | GC inactivity threshold (default: 90) |
 | `--operator <name>` | Operator name for GC audit trail |
 | `--grace-period N` | Key rotation grace period in days (default: 30) |
+| `--cert <path>` | TLS certificate for `api-setup` |
+| `--key <path>` | TLS private key for `api-setup` |
 
 ### `buncker-fetch` (online CLI)
 
@@ -397,6 +402,45 @@ sudo journalctl -u buncker -f
 | `docker build` fails after import | Daemon not serving imported blobs | Check `buncker status` and verify daemon is running |
 | High disk usage on online machine | Blob cache growing | Run `buncker-fetch cache clean --older-than 7d` |
 
+## LAN Client Operations
+
+After running `buncker api-setup`, remote clients on the LAN can use `curl`
+to interact with the admin API. TLS is mandatory when auth is enabled.
+
+```bash
+# Setup API (generates tokens + TLS cert)
+sudo buncker api-setup
+
+# Export CA for clients
+buncker export-ca > buncker-ca.pem
+```
+
+### Remote analysis (from LAN client)
+
+```bash
+# Analyze a Dockerfile (send content, not path)
+curl -X POST -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"dockerfile_content": "FROM alpine:3.19\nRUN apk add curl"}' \
+  https://buncker:5000/admin/analyze --cacert buncker-ca.pem
+
+# Download transfer manifest
+curl -H "Authorization: Bearer <admin-token>" \
+  -o request.json.enc \
+  -X POST https://buncker:5000/admin/generate-manifest --cacert buncker-ca.pem
+
+# Upload response (streaming with checksum)
+CHECKSUM=$(sha256sum response.tar.enc | cut -d' ' -f1)
+curl -T response.tar.enc \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "X-Buncker-Checksum: sha256:$CHECKSUM" \
+  https://buncker:5000/admin/import --cacert buncker-ca.pem
+
+# Check status (read-only token works)
+curl -H "Authorization: Bearer <readonly-token>" \
+  https://buncker:5000/admin/status --cacert buncker-ca.pem
+```
+
 ## Development
 
 ```bash
@@ -426,8 +470,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| Admin API authentication | Bearer token or mTLS on `/admin/*` for secure LAN access | Planned |
-| LAN client operations | Analyze, prepare, import from client machines via admin API (no SSH) | Planned |
+| Admin API authentication | Bearer token on `/admin/*` with TLS for secure LAN access | Done |
+| LAN client operations | Analyze, prepare, import from client machines via curl (no SSH) | Done |
 
 ## License
 
