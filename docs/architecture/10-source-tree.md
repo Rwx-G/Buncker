@@ -15,6 +15,7 @@ buncker/
 │   ├── __main__.py
 │   ├── server.py
 │   ├── handler.py
+│   ├── auth.py
 │   ├── resolver.py
 │   ├── registry_client.py
 │   ├── store.py
@@ -38,6 +39,7 @@ buncker/
 │   │   ├── test_store.py
 │   │   ├── test_registry_client.py
 │   │   ├── test_handler.py
+│   │   ├── test_auth.py
 │   │   ├── test_transfer.py
 │   │   └── test_server_integration.py
 │   └── buncker_fetch/

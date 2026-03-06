@@ -15,4 +15,7 @@ Implement the fetcher (auth discovery, download, cache), transfer (request decry
 ## Epic 5 - Packaging, E2E & Release
 Build .deb packages, run e2e tests for the full cycle, document the project, produce first GitHub release.
 
+## Epic 6 - Admin API Authentication & LAN Client Operations
+Secure the admin API with Bearer token authentication and TLS, then enable LAN clients to perform registry operations (analyze, generate-manifest, import) remotely via curl. Optional setup via `buncker api-setup` - installations using local-only access remain unchanged.
+
 ---

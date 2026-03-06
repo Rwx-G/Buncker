@@ -17,6 +17,7 @@ Buncker is a surgical Docker layer synchronization system for air-gapped environ
    - Online: `buncker-fetch fetch request.json.enc` → downloads → `response.tar.enc` → USB
    - Offline: import → verification → store → Docker builds work
 5. **Key Decisions:** No internet fallback (miss = error), manual GC only, deduplication at manifest level, symmetric crypto (no PKI)
+6. **V2 - LAN Client Operations:** Optional Bearer token authentication on admin API via `buncker api-setup`. Two access levels (read-only, admin). TLS mandatory when auth enabled. LAN clients interact via curl - no new binary needed
 
 ## High Level Project Diagram
 
@@ -69,5 +70,11 @@ graph TB
 - **Symmetric Crypto (Pre-Shared Key):** AES-256 + HMAC-SHA256 derived from a BIP-39 mnemonic shared once. _Rationale:_ No PKI to manage, no certificates to renew, adapted to a context where both endpoints are controlled by the same organization.
 
 - **Delta Sync:** Only missing blobs are requested. The transfer manifest is a diff between the local store and Dockerfile needs. _Rationale:_ Core value proposition vs Hauler (bulk snapshot). Bandwidth and time savings.
+
+- **Optional Bearer Token Auth (V2):** Two-tier Bearer tokens (read-only / admin) on `/admin/*` endpoints, activated via `buncker api-setup`. `/v2/*` OCI endpoints remain unauthenticated. _Rationale:_ LAN clients (VMs, remote racks) need remote access to admin operations. Tokens are cryptographically random (256-bit), not derived from the mnemonic - separate security domain.
+
+- **TLS Enforcement with Auth:** When auth is enabled, TLS is mandatory (operator-provided cert or auto-signed). _Rationale:_ Bearer tokens in cleartext over HTTP = interceptable. Auto-signed reuses existing `export-ca` mechanism.
+
+- **Streaming Upload Pattern (V2):** Large file imports (`response.tar.enc`, potentially multi-GB) use PUT with chunked write-to-disk and `Content-Range` resume support. _Rationale:_ Buncker may run in a VM/rack/DC where USB is impractical. LAN transfers of multi-GB files must not load entirely in memory and must survive interruptions.
 
 ---

@@ -11,5 +11,6 @@ This document outlines the overall project architecture for Buncker, a surgical 
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
 | 2026-03-04 | 1.0 | Initial architecture document | Romain G. |
+| 2026-03-06 | 2.0 | Added Admin API authentication, TLS, LAN client operations, streaming import | Romain G. |
 
 ---

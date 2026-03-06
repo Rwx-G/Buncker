@@ -73,4 +73,14 @@
 **Key Attributes:**
 - `source_path`, `build_args`, `images`: list[ResolvedImage], `present_blobs`: set[str], `missing_blobs`: list[dict], `total_missing_size`: int, `warnings`: list[str]
 
+## API Token Config (V2)
+
+**Purpose:** Bearer tokens for admin API authentication
+
+**Key Attributes:**
+- `readonly`: string - 256-bit hex token for read-only access
+- `admin`: string - 256-bit hex token for full admin access
+
+**Persistence:** `/etc/buncker/api-tokens.json` (mode 0600). Only exists after `buncker api-setup`.
+
 ---

@@ -27,11 +27,25 @@
   "max_workers": 16,
   "tls": false,
   "crypto": { "salt": "base64...", "mnemonic_hash": "sha256:..." },
+  "api": { "enabled": false },
   "private_registries": ["registry.internal", "localhost:*"],
   "gc": { "inactive_days_threshold": 90 },
   "log_level": "INFO"
 }
 ```
+
+When `api.enabled: true` (after `buncker api-setup`), `tls` is also set to `true`.
+
+## API tokens (`/etc/buncker/api-tokens.json`, mode 0600)
+
+```json
+{
+  "readonly": "hex-encoded-256-bit-token",
+  "admin": "hex-encoded-256-bit-token"
+}
+```
+
+This file only exists after `buncker api-setup`. It is never readable by non-root users.
 
 ## Cache online (`~/.buncker/`)
 

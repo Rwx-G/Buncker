@@ -13,16 +13,26 @@
 - GitHub Actions CI (lint + test + build .deb)
 - Documentation (README, CONTRIBUTING, LICENSE Apache 2.0)
 
-## Out of Scope (V2+)
+## In Scope (V2 - Admin API Auth & LAN Client Operations)
 
-- **Cosign / supply chain signatures** - V2: optional `--verify-signature` flag on buncker-fetch
-- **Multi-registry offline sync** - V2: shared store via NFS/CIFS (filesystem config). V3: active replication
-- **RPM / tarball packaging** - V2 if community demand (Fedora, RHEL)
+- Optional Bearer token authentication on `/admin/*` endpoints via `buncker api-setup`
+- Two access levels: read-only (status, logs, gc report) and admin (analyze, generate-manifest, import, gc execute)
+- TLS activation (operator-provided certificate or auto-signed) mandatory when auth is enabled
+- Token management commands (`api-show`, `api-reset`)
+- Remote Dockerfile analysis via content upload (curl)
+- Streaming import via PUT with resume support (`Content-Range`) and pre-decryption checksum (`X-Buncker-Checksum`)
+- Enriched audit trail with `client_ip`, `auth_level`, `user_agent` on all API requests
+
+## Out of Scope (V3+)
+
+- **Cosign / supply chain signatures** - optional `--verify-signature` flag on buncker-fetch
+- **Multi-registry offline sync** - shared store via NFS/CIFS (filesystem config), later active replication
+- **RPM / tarball packaging** - if community demand (Fedora, RHEL)
 - **pip / PyPI packaging** - Not planned (contradicts zero-pip philosophy)
 - **Web interface / dashboard** - Not planned. CLI + HTTP API suffice
 - **External monitoring** (Prometheus, Grafana) - Not planned. Audit trail logs cover traceability
-- **Helm charts / Kubernetes manifests support** - V1 = Docker images only
-- **Windows / macOS support** - V1 = Debian/Ubuntu only
+- **Helm charts / Kubernetes manifests support** - Docker images only
+- **Windows / macOS support** - Debian/Ubuntu only
 - **Daemon auto-update** - The .deb can be included in response.tar.enc but installation remains manual
 
 ---
