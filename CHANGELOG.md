@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Per-IP rate limiting on `/admin/*` endpoints (60 req/min sliding window, 429 + Retry-After)
+- Disk space pre-check before import (507 Insufficient Storage if < 2x upload size)
+- TLS certificate expiry warning at daemon startup (warns if <= 30 days or expired)
+
 ### Changed
 
 - PBKDF2 iterations bumped from 600,000 to 1,200,000 (2x OWASP 2023 minimum for SHA-256)
