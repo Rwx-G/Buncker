@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Per-IP rate limiting on `/admin/*` endpoints (60 req/min sliding window, 429 + Retry-After)
 - Disk space pre-check before import (507 Insufficient Storage if < 2x upload size)
 - TLS certificate expiry warning at daemon startup (warns if <= 30 days or expired)
+- `--cleanup` flag on `buncker import` to delete `.tar.enc` file after successful import
+- Disk usage info in `/admin/status` and `buncker status` (disk_total, disk_used, disk_free)
+- `api-setup` now copies `ca.pem` to `/etc/buncker/ca.pem` and displays cert SHA-256 fingerprint
 
 ### Changed
 
