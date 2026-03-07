@@ -109,6 +109,11 @@ def main() -> None:
         default=None,
         help="Path to .tar.enc file (auto-scans transfer_path if omitted)",
     )
+    sub_import.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="Delete .tar.enc file after successful import",
+    )
 
     # status
     subparsers.add_parser("status", help="Show registry status")
@@ -396,6 +401,28 @@ def _cmd_api_setup(args: argparse.Namespace) -> None:
     save_config(config, config_path)
     print(_c("done", _GREEN))
 
+    # Copy ca.pem to config directory for easy distribution
+    ca_src = tls_dir / "ca.pem"
+    ca_dest = config_path.parent / "ca.pem"
+    if ca_src.exists():
+        import shutil
+
+        shutil.copy2(ca_src, ca_dest)
+
+    # Compute cert fingerprint
+    cert_fingerprint = ""
+    cert_path = tls_dir / "server.pem"
+    if cert_path.exists():
+        try:
+            from cryptography import x509
+            from cryptography.hazmat.primitives import hashes
+
+            cert = x509.load_pem_x509_certificate(cert_path.read_bytes())
+            fp = cert.fingerprint(hashes.SHA256()).hex()
+            cert_fingerprint = ":".join(fp[i : i + 2] for i in range(0, len(fp), 2))
+        except Exception:
+            pass
+
     # Display tokens
     sep = "=" * 60
     print()
@@ -407,8 +434,17 @@ def _cmd_api_setup(args: argparse.Namespace) -> None:
     print(f"  {_c('Read-only:', _BOLD)} {tokens['readonly']}")
     print(f"  {_c('Admin:', _BOLD)}     {tokens['admin']}")
     print()
+    if cert_fingerprint:
+        print(f"  {_c('Cert fingerprint (SHA-256):', _BOLD)}")
+        print(f"  {cert_fingerprint}")
+        print()
     print(f"  Tokens file: {tokens_path}")
     print(f"  TLS certs:   {tls_dir}")
+    if ca_dest.exists():
+        print(f"  CA export:   {ca_dest}")
+    print()
+    print("  Distribute the CA to LAN clients:")
+    print(f"    scp {ca_dest} user@client:~/buncker-ca.pem")
     print()
     print("  Restart the daemon to apply changes:")
     print("    sudo systemctl restart buncker")
@@ -772,9 +808,21 @@ def _cmd_proxy(args: argparse.Namespace) -> None:
         result = _admin_post_binary(f"{base}/admin/import", file_data)
         print(json.dumps(result, indent=2))
 
+        if getattr(args, "cleanup", False) and result.get("imported", 0) > 0:
+            import_file.unlink()
+            print(f"Cleaned up: {import_file}")
+
     elif args.command == "status":
         result = _admin_get(f"{base}/admin/status")
         print(json.dumps(result, indent=2))
+        if "disk_free" in result:
+            free_gb = result["disk_free"] / (1024**3)
+            total_gb = result["disk_total"] / (1024**3)
+            used_pct = result["disk_used"] / result["disk_total"] * 100
+            print(
+                f"\nDisk: {free_gb:.1f} GiB free / "
+                f"{total_gb:.1f} GiB total ({used_pct:.0f}% used)"
+            )
 
     elif args.command == "gc":
         if args.report or not args.execute:
