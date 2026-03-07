@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/python-%3E%3D3.11-3776AB.svg?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/platform-Debian%2FUbuntu-A81D33.svg?logo=debian&logoColor=white" alt="Platform">
   <img src="https://img.shields.io/badge/packaging-.deb-orange.svg" alt="Packaging">
-  <img src="https://img.shields.io/badge/status-v0.8.0-brightgreen.svg" alt="Status">
+  <img src="https://img.shields.io/badge/status-v0.8.1-brightgreen.svg" alt="Status">
   <img src="https://img.shields.io/badge/coverage-%E2%89%A580%25-brightgreen.svg" alt="Coverage">
 </p>
 
@@ -74,10 +74,10 @@ Download the latest `.deb` files from [GitHub Releases](https://github.com/Rwx-G
 
 ```bash
 # Offline machine
-sudo dpkg -i buncker_0.8.0_all.deb
+sudo dpkg -i buncker_0.8.1_all.deb
 
 # Online machine
-sudo dpkg -i buncker-fetch_0.8.0_all.deb
+sudo dpkg -i buncker-fetch_0.8.1_all.deb
 ```
 
 If dependencies are missing, fix them with:
