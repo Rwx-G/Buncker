@@ -158,12 +158,21 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-check "status returns valid JSON" python3 -c "import json; json.load(open('$STATUS_FILE'))"
+check "status returns valid JSON" python3 -c "
+import json
+raw = open('$STATUS_FILE').read()
+# CLI appends a human-readable disk summary after the JSON block
+json_part = raw[:raw.index('\n\nDisk:')] if '\n\nDisk:' in raw else raw
+json.loads(json_part)
+"
 check "status has version and blob_count" python3 -c "
 import json
-d = json.load(open('$STATUS_FILE'))
+raw = open('$STATUS_FILE').read()
+json_part = raw[:raw.index('\n\nDisk:')] if '\n\nDisk:' in raw else raw
+d = json.loads(json_part)
 assert 'version' in d, 'missing version'
 assert 'blob_count' in d, 'missing blob_count'
+assert 'disk_free' in d, 'missing disk_free'
 "
 
 # --- Analyze: simple Dockerfile ---
@@ -597,7 +606,9 @@ print(f'  ({count} blobs in store)')
     /usr/bin/buncker --config "$SETUP_CONFIG" status > "$STATUS_AFTER" 2>&1
     check "status shows blobs after import" python3 -c "
 import json
-d = json.load(open('$STATUS_AFTER'))
+raw = open('$STATUS_AFTER').read()
+json_part = raw[:raw.index('\n\nDisk:')] if '\n\nDisk:' in raw else raw
+d = json.loads(json_part)
 assert d['blob_count'] > 0, f'expected blob_count > 0, got {d[\"blob_count\"]}'
 print(f'  (blob_count={d[\"blob_count\"]}, total_size={d[\"total_size\"]})')
 "
