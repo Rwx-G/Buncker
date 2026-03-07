@@ -346,13 +346,13 @@ class BunckerHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-            # Path traversal prevention
-            if ".." in Path(dockerfile).parts:
+            # Path traversal prevention: resolve symlinks and verify file exists
+            dockerfile_path = Path(dockerfile).resolve()
+            if ".." in Path(dockerfile).parts or not dockerfile_path.is_file():
                 self._send_admin_error(
                     400, "INVALID_PATH", "path traversal not allowed"
                 )
                 return
-            dockerfile_path = Path(dockerfile)
         else:
             self._send_admin_error(
                 400, "MISSING_FIELD", "dockerfile or dockerfile_content field required"
