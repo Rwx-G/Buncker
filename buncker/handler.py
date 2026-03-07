@@ -57,7 +57,25 @@ class BunckerHandler(BaseHTTPRequestHandler):
         }
 
     def _check_auth(self) -> str | None:
-        """Run auth middleware. Returns auth_level or None if error sent."""
+        """Run rate limit + auth middleware. Returns auth_level or sends error."""
+        # Rate limit per IP on admin endpoints
+        rate_limiter = getattr(self._server_ref, "rate_limiter", None)
+        if rate_limiter and not rate_limiter.is_allowed(self.client_address[0]):
+            _log.warning(
+                "rate_limited",
+                extra=self._request_meta("rejected"),
+            )
+            body = json.dumps(
+                {"error": "Too many requests", "code": "RATE_LIMITED"}
+            ).encode()
+            self.send_response(429)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Retry-After", "60")
+            self.end_headers()
+            self.wfile.write(body)
+            return None
+
         try:
             level = authenticate_request(
                 self,
