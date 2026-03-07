@@ -79,6 +79,7 @@ class BunckerServer:
         self.api_enabled = api_enabled
         self._start_time: float | None = None
         self._last_analysis = None
+        self._analysis_lock = threading.Lock()
 
     def start(self) -> None:
         """Start the server in a background thread."""
