@@ -530,6 +530,36 @@ def _resolve_transfer_path(config: dict) -> Path | None:
     return None
 
 
+_TLS_EXPIRY_WARNING_DAYS = 30
+
+
+def _check_tls_cert_expiry(config: dict) -> None:
+    """Warn if the TLS certificate expires within 30 days."""
+    cert_path = Path(config["store_path"]) / "tls" / "server.pem"
+    if not cert_path.exists():
+        return
+    try:
+        from datetime import UTC, datetime
+
+        from cryptography import x509
+
+        cert_data = cert_path.read_bytes()
+        cert = x509.load_pem_x509_certificate(cert_data)
+        days_left = (cert.not_valid_after_utc - datetime.now(tz=UTC)).days
+        if days_left <= 0:
+            print(
+                f"{_c('WARNING', _BOLD + _YELLOW)}: TLS certificate has expired "
+                f"({-days_left} days ago). Regenerate with 'buncker api-setup'."
+            )
+        elif days_left <= _TLS_EXPIRY_WARNING_DAYS:
+            print(
+                f"{_c('WARNING', _BOLD + _YELLOW)}: TLS certificate expires in "
+                f"{days_left} days. Regenerate with 'buncker api-setup'."
+            )
+    except Exception:
+        pass
+
+
 def _cmd_serve(args: argparse.Namespace) -> None:
     """Start the HTTP daemon."""
     config = load_config(args.config)
@@ -544,6 +574,10 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         print("Error: API authentication is enabled but TLS is not.")
         print("TLS is mandatory when the API is exposed. Run 'buncker api-setup'.")
         sys.exit(1)
+
+    # Check TLS certificate expiry
+    if config.get("tls"):
+        _check_tls_cert_expiry(config)
 
     # Get mnemonic from env or stdin
     mnemonic = os.environ.get("BUNCKER_MNEMONIC")
