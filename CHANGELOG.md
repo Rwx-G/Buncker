@@ -7,11 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-03-08
+
 ### Added
 
 - Per-IP rate limiting on `/admin/*` endpoints (60 req/min sliding window, 429 + Retry-After)
 - Disk space pre-check before import (507 Insufficient Storage if < 2x upload size)
 - TLS certificate expiry warning at daemon startup (warns if <= 30 days or expired)
+- `--cleanup` flag on `buncker import` to delete `.tar.enc` file after successful import
+- Disk usage info in `/admin/status` and `buncker status` (disk_total, disk_used, disk_free)
+- `api-setup` now copies `ca.pem` to `/etc/buncker/ca.pem` and displays cert SHA-256 fingerprint
 
 ### Changed
 
@@ -213,7 +218,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/Rwx-G/Buncker/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Rwx-G/Buncker/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Rwx-G/Buncker/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/Rwx-G/Buncker/compare/v0.6.0...v0.6.1

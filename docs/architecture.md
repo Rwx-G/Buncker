@@ -599,7 +599,7 @@ OCI endpoints are **always unauthenticated** regardless of auth configuration.
 | POST | `/admin/generate-manifest` | Generate request.json.enc - returns file in response body | Admin |
 | POST | `/admin/import` | Import response.tar.enc (local CLI, multipart/form-data) | Admin |
 | PUT | `/admin/import` | Streaming upload of response.tar.enc (remote, `curl -T`) | Admin |
-| GET | `/admin/status` | Store state | Read-only |
+| GET | `/admin/status` | Store state + disk usage | Read-only |
 | GET | `/admin/gc/report` | GC candidates report | Read-only |
 | POST | `/admin/gc/execute` | Execute GC (requires operator + digests) | Admin |
 | GET | `/admin/logs` | Query logs (filter by event, since, limit) | Read-only |
