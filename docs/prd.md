@@ -109,7 +109,7 @@ Buncker is the only tool combining Dockerfile resolution + delta sync + encrypti
 - **FR6:** The offline daemon imports a response.tar.enc by sequentially verifying: decryption → HMAC → SHA256 per blob → atomic storage in the store
 - **FR7:** The offline daemon exposes the OCI Distribution API (pull subset: GET/HEAD manifests and blobs) to allow Docker clients to pull images without configuration changes (beyond hosts.toml)
 - **FR8:** The offline daemon is a permanent HTTP service (systemd) simultaneously serving the OCI API to build clients and the administration API to the operator
-- **FR9:** The system supports initial pairing via BIP-39 mnemonic (12 words) communicated through a human channel, with PBKDF2 derivation of AES and HMAC keys
+- **FR9:** The system supports initial pairing via BIP-39 mnemonic (16 words: 12 secret + 4 salt) communicated through a human channel, with PBKDF2 derivation of AES and HMAC keys
 - **FR10:** The system supports key rotation with a configurable grace period
 - **FR11:** Blob GC is manual only: inactive candidates report → operator confirmation → deletion. Never automatic deletion
 - **FR12:** The system produces structured JSON Lines logs (append-only) for every event: analysis, manifest generation, import, pull, GC, key rotation
@@ -243,14 +243,14 @@ I want the cryptographic primitives implemented and tested,
 so that all transfer security relies on proven, audited code.
 
 **Acceptance Criteria:**
-1. generate_mnemonic() returns 12 words from BIP-39 wordlist (2048 words) with secrets.token_bytes entropy
-2. derive_keys(mnemonic, salt, iterations=600_000) returns tuple (aes_key, hmac_key) via PBKDF2-SHA256
+1. generate_mnemonic() returns 16 words from BIP-39 wordlist (12 secret + 4 salt) with secrets.token_bytes entropy
+2. derive_keys(mnemonic, salt, iterations=1_200_000) returns tuple (aes_key, hmac_key) via PBKDF2-SHA256
 3. encrypt(data, aes_key) encrypts with AES-256-GCM and returns nonce + ciphertext + tag
 4. decrypt(data, aes_key) decrypts and verifies auth tag. Raises CryptoError if invalid
 5. sign(data, hmac_key) returns HMAC-SHA256 hex digest
 6. verify(data, hmac_key, signature) returns bool (constant-time comparison)
 7. shared/wordlist.py contains the complete BIP-39 wordlist (2048 words) embedded
-8. Unit tests: round-trip encrypt/decrypt, wrong key → CryptoError, valid/invalid HMAC, mnemonic has 12 valid words
+8. Unit tests: round-trip encrypt/decrypt, wrong key → CryptoError, valid/invalid HMAC, mnemonic has 16 valid words
 9. 100% coverage on this module
 
 #### Story 1.3 - OCI Module (shared/oci)
@@ -490,7 +490,7 @@ I want a complete CLI to manage the online side,
 so that I can pair, inspect, fetch, and manage the cache.
 
 **Acceptance Criteria:**
-1. buncker-fetch pair: enter 12 words, derive keys, save config
+1. buncker-fetch pair: enter 16 words, derive keys, save config
 2. buncker-fetch inspect: decrypt, display summary
 3. buncker-fetch fetch: full cycle with --output and --parallelism options
 4. buncker-fetch status: cache state

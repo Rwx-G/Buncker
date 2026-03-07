@@ -10,7 +10,7 @@
 - **FR6:** The offline daemon imports a response.tar.enc by sequentially verifying: decryption → HMAC → SHA256 per blob → atomic storage in the store
 - **FR7:** The offline daemon exposes the OCI Distribution API (pull subset: GET/HEAD manifests and blobs) to allow Docker clients to pull images without configuration changes (beyond hosts.toml)
 - **FR8:** The offline daemon is a permanent HTTP service (systemd) simultaneously serving the OCI API to build clients and the administration API to the operator
-- **FR9:** The system supports initial pairing via BIP-39 mnemonic (12 words) communicated through a human channel, with PBKDF2 derivation of AES and HMAC keys
+- **FR9:** The system supports initial pairing via BIP-39 mnemonic (16 words: 12 secret + 4 salt) communicated through a human channel, with PBKDF2 derivation of AES and HMAC keys
 - **FR10:** The system supports key rotation with a configurable grace period
 - **FR11:** Blob GC is manual only: inactive candidates report → operator confirmation → deletion. Never automatic deletion
 - **FR12:** The system produces structured JSON Lines logs (append-only) for every event: analysis, manifest generation, import, pull, GC, key rotation
