@@ -22,10 +22,24 @@ OCI endpoints are **always unauthenticated** regardless of auth configuration.
 | POST | `/admin/generate-manifest` | Generate request.json.enc - returns file in response body | Admin |
 | POST | `/admin/import` | Import response.tar.enc (local CLI, multipart/form-data) | Admin |
 | PUT | `/admin/import` | Streaming upload of response.tar.enc (remote, `curl -T`) | Admin |
-| GET | `/admin/status` | Store state | Read-only |
+| GET | `/admin/status` | Store state + disk usage | Read-only |
 | GET | `/admin/gc/report` | GC candidates report | Read-only |
 | POST | `/admin/gc/execute` | Execute GC (requires operator + digests) | Admin |
 | GET | `/admin/logs` | Query logs (filter by event, since, limit) | Read-only |
+
+### GET /admin/status - Response
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `version` | string | Buncker version |
+| `source_id` | string | Instance identifier |
+| `store_path` | string | OCI store directory |
+| `blob_count` | int | Number of stored blobs |
+| `total_size` | int | Total blob size in bytes |
+| `disk_total` | int | Total disk space in bytes |
+| `disk_used` | int | Used disk space in bytes |
+| `disk_free` | int | Free disk space in bytes |
+| `uptime` | int | Server uptime in seconds |
 
 ### Authentication (V2 - after `buncker api-setup`)
 

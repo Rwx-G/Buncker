@@ -176,13 +176,13 @@ token authentication.
 ```bash
 sudo buncker api-setup
 # Generates admin + readonly tokens, activates TLS
+# Displays cert fingerprint and copies CA to /etc/buncker/ca.pem
 
-# Show the admin token
+# Distribute CA certificate to LAN clients
+scp /etc/buncker/ca.pem user@client:~/buncker-ca.pem
+
+# Show the admin token (if needed later)
 buncker api-show admin
-
-# Export CA certificate for LAN clients
-buncker export-ca > buncker-ca.pem
-# Distribute buncker-ca.pem to client machines
 ```
 
 **2. From LAN client - analyze and generate transfer request**
