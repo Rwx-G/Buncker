@@ -157,8 +157,12 @@ class TestCliProxy:
                 with mock.patch("sys.stdout", captured):
                     main()
                 output = captured.getvalue()
-                data = json.loads(output)
+                # Output contains JSON + human-readable disk summary
+                json_end = output.index("\n\nDisk:")
+                data = json.loads(output[:json_end])
                 assert "version" in data
+                assert "disk_free" in data
+                assert "Disk:" in output
         finally:
             srv.stop()
 

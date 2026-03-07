@@ -372,6 +372,11 @@ class TestAdminStatus:
         assert "blob_count" in data
         assert "total_size" in data
         assert "uptime" in data
+        assert "disk_total" in data
+        assert "disk_used" in data
+        assert "disk_free" in data
+        assert data["disk_total"] > 0
+        assert data["disk_free"] > 0
 
     def test_status_blob_count(self, base_url, store):
         content = b"status test blob"

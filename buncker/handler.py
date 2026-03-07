@@ -731,12 +731,16 @@ class BunckerHandler(BaseHTTPRequestHandler):
         if start_time is not None:
             uptime = int(time.time() - start_time)
 
+        disk = shutil.disk_usage(store.path)
         status = {
             "version": __version__,
             "source_id": source_id,
             "store_path": str(store.path),
             "blob_count": blob_count,
             "total_size": total_size,
+            "disk_total": disk.total,
+            "disk_used": disk.used,
+            "disk_free": disk.free,
             "uptime": uptime,
         }
         self._send_json(200, status)
