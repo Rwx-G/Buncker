@@ -143,7 +143,7 @@ def mnemonic():
 def crypto_keys(mnemonic):
     """Derive AES and HMAC keys from the mnemonic."""
     salt = os.urandom(32)
-    # Reduced iterations for test speed (production uses 600,000)
+    # Reduced iterations for test speed (production uses 1,200,000)
     aes_key, hmac_key = derive_keys(mnemonic, salt, iterations=1000)
     return aes_key, hmac_key, salt
 

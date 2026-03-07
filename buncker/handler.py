@@ -346,13 +346,13 @@ class BunckerHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-            # Path traversal prevention
-            if ".." in Path(dockerfile).parts:
+            # Path traversal prevention: resolve symlinks and verify file exists
+            dockerfile_path = Path(dockerfile).resolve()
+            if ".." in Path(dockerfile).parts or not dockerfile_path.is_file():
                 self._send_admin_error(
                     400, "INVALID_PATH", "path traversal not allowed"
                 )
                 return
-            dockerfile_path = Path(dockerfile)
         else:
             self._send_admin_error(
                 400, "MISSING_FIELD", "dockerfile or dockerfile_content field required"
@@ -382,8 +382,9 @@ class BunckerHandler(BaseHTTPRequestHandler):
             if dockerfile_content:
                 dockerfile_path.unlink(missing_ok=True)
 
-        # Store analysis result for generate-manifest
-        self._server_ref._last_analysis = result
+        # Store analysis result for generate-manifest (thread-safe)
+        with self._server_ref._analysis_lock:
+            self._server_ref._last_analysis = result
 
         report = {
             "source_path": result.source_path,
@@ -419,7 +420,8 @@ class BunckerHandler(BaseHTTPRequestHandler):
 
     def _handle_admin_generate_manifest(self):
         """POST /admin/generate-manifest - Generate encrypted transfer request."""
-        analysis = getattr(self._server_ref, "_last_analysis", None)
+        with self._server_ref._analysis_lock:
+            analysis = self._server_ref._last_analysis
         if analysis is None:
             self._send_admin_error(
                 409, "NO_ANALYSIS", "no analysis pending - run /admin/analyze first"
@@ -492,8 +494,9 @@ class BunckerHandler(BaseHTTPRequestHandler):
             },
         )
 
-        # Clear analysis after generation
-        self._server_ref._last_analysis = None
+        # Clear analysis after generation (thread-safe)
+        with self._server_ref._analysis_lock:
+            self._server_ref._last_analysis = None
 
     def _handle_admin_import(self):
         """POST /admin/import - Import encrypted transfer response."""

@@ -113,14 +113,14 @@ def split_mnemonic(mnemonic: str) -> tuple[str, bytes]:
 def derive_keys(
     mnemonic: str,
     salt: bytes,
-    iterations: int = 600_000,
+    iterations: int = 1_200_000,
 ) -> tuple[bytes, bytes]:
     """Derive AES and HMAC keys from a mnemonic via PBKDF2-SHA256.
 
     Args:
         mnemonic: Space-separated mnemonic string.
         salt: Random salt bytes.
-        iterations: PBKDF2 iteration count (default 600,000).
+        iterations: PBKDF2 iteration count (default 1,200,000).
 
     Returns:
         Tuple of (aes_key, hmac_key), each 32 bytes.

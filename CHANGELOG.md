@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- PBKDF2 iterations bumped from 600,000 to 1,200,000 (2x OWASP 2023 minimum for SHA-256)
+
+### Security
+
+- Thread-safe `_last_analysis` state with `threading.Lock` (race condition fix)
+- Path traversal hardening in `/admin/analyze`: `Path.resolve()` + `is_file()` check
+
 ## [0.8.0] - 2026-03-06
 
 ### Added

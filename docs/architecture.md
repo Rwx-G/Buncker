@@ -477,13 +477,13 @@ sequenceDiagram
     participant F as buncker-fetch
 
     OFF->>D: buncker setup
-    D->>D: generate_mnemonic() → 12 BIP-39 words
+    D->>D: generate_mnemonic() → 16 BIP-39 words (12 secret + 4 salt)
     D->>D: derive_keys + save config
-    D-->>OFF: Display 12 words (write on paper)
+    D-->>OFF: Display 16 words (write on paper)
     Note over OFF,ON: Human channel (verbal, paper)
     ON->>F: buncker-fetch pair
-    F-->>ON: Enter 12 words
-    ON->>F: word1 word2 ... word12
+    F-->>ON: Enter 16 words
+    ON->>F: word1 word2 ... word16
     F->>F: derive_keys + save config
     F-->>ON: Pairing OK
 ```

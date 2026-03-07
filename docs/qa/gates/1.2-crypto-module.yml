@@ -2,7 +2,7 @@ schema: 1
 story: '1.2'
 story_title: 'Crypto Module'
 gate: PASS
-status_reason: 'All 9 ACs verified: generate_mnemonic uses secrets.token_bytes(16) with proper BIP-39 checksum, derive_keys uses PBKDF2-SHA256 at 600,000 iterations returning (aes_key, hmac_key) 32 bytes each, encrypt uses AES-256-GCM with os.urandom(12) nonce returning nonce+ciphertext+tag, decrypt raises CryptoError on auth failure, sign returns HMAC-SHA256 hex digest, verify uses hmac.compare_digest for constant-time comparison, wordlist.py embeds 2048 BIP-39 words with assertion, 21 tests cover all round-trip and failure paths. CryptoError migrated to shared.exceptions and re-exported from shared.crypto for compatibility. 100% coverage reported by dev agent.'
+status_reason: 'All 9 ACs verified: generate_mnemonic uses secrets.token_bytes(16) with proper BIP-39 checksum (16 words: 12 secret + 4 salt), derive_keys uses PBKDF2-SHA256 at 1,200,000 iterations returning (aes_key, hmac_key) 32 bytes each, encrypt uses AES-256-GCM with os.urandom(12) nonce returning nonce+ciphertext+tag, decrypt raises CryptoError on auth failure, sign returns HMAC-SHA256 hex digest, verify uses hmac.compare_digest for constant-time comparison, wordlist.py embeds 2048 BIP-39 words with assertion, 21 tests cover all round-trip and failure paths. CryptoError migrated to shared.exceptions and re-exported from shared.crypto for compatibility. 100% coverage reported by dev agent.'
 reviewer: 'Quinn (Test Architect)'
 updated: '2026-03-04T23:00:00Z'
 top_issues: []
