@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import collections
 import logging
 import threading
 import time
@@ -13,6 +14,36 @@ from buncker.handler import BunckerHandler
 from buncker.store import Store
 
 _log = logging.getLogger("buncker.server")
+
+_RATE_LIMIT_WINDOW = 60  # seconds
+_RATE_LIMIT_MAX = 60  # requests per window per IP
+
+
+class RateLimiter:
+    """Per-IP sliding window rate limiter for admin endpoints."""
+
+    def __init__(
+        self, max_requests: int = _RATE_LIMIT_MAX, window: int = _RATE_LIMIT_WINDOW
+    ) -> None:
+        self._max = max_requests
+        self._window = window
+        self._hits: dict[str, collections.deque] = {}
+        self._lock = threading.Lock()
+
+    def is_allowed(self, ip: str) -> bool:
+        """Check if a request from *ip* is within the rate limit."""
+        now = time.monotonic()
+        with self._lock:
+            if ip not in self._hits:
+                self._hits[ip] = collections.deque()
+            q = self._hits[ip]
+            # Evict expired entries
+            while q and q[0] <= now - self._window:
+                q.popleft()
+            if len(q) >= self._max:
+                return False
+            q.append(now)
+            return True
 
 
 class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
@@ -80,6 +111,7 @@ class BunckerServer:
         self._start_time: float | None = None
         self._last_analysis = None
         self._analysis_lock = threading.Lock()
+        self.rate_limiter = RateLimiter()
 
     def start(self) -> None:
         """Start the server in a background thread."""

@@ -464,22 +464,17 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| Thread-safe analysis state | Add `threading.Lock` around `_last_analysis` in server/handler for correctness | Done |
-| Path traversal hardening | Use `Path.resolve()` + file existence check in `/admin/analyze` path mode | Done |
-| PBKDF2 iterations bump | Increase key derivation from 600k to 1.2M iterations (2x OWASP 2023 minimum) | Done |
-| PRD mnemonic doc fix | Fix PRD to reflect 16-word mnemonic (salt encoded in last 4 words) | Done |
-| Test coverage reporting | Add pytest-cov with coverage badge in README and CI coverage gate | Done |
+| Import disk space pre-check | Verify available disk space before starting import to prevent mid-write failures | Done |
+| TLS cert expiry warning | Warn in `status` and logs when auto-signed certificate expires within 30 days | Done |
+| Admin API rate-limiting | Per-IP request throttling on `/admin/*` endpoints to mitigate DoS on LAN exposure | Done |
 | Import cleanup flag | `--cleanup` flag on `buncker import` to delete .tar.enc after successful import | Planned |
-| TLS cert expiry warning | Warn in `status` and logs when auto-signed certificate expires within 30 days | Planned |
 | Streamlined `api-setup` | Auto-export ca.pem to a known path and display cert fingerprint during setup | Planned |
-| Import disk space pre-check | Verify available disk space before starting import to prevent mid-write failures | Planned |
 | Disk space in `status` | Show store disk usage and available space in `buncker status` output | Planned |
 | Health-check endpoint | `/admin/health` returning store integrity, cert expiry, and disk space | Planned |
 | Store integrity check | `buncker verify` command to re-hash all blobs and detect silent corruption (bit-rot) | Planned |
 | GC impact report | `gc --report` shows which images become non-pullable if candidates are deleted | Planned |
 | Fetch rate limiting | Auto-pace blob downloads based on registry `RateLimit-*` headers | Planned |
 | Manifest auto-refresh | buncker-fetch re-downloads manifests on every fetch and warns if upstream digest changed | Planned |
-| Admin API rate-limiting | Per-IP request throttling on `/admin/*` endpoints to mitigate DoS on LAN exposure | Planned |
 
 ## License
 

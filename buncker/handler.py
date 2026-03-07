@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import re
+import shutil
 import time
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler
@@ -56,7 +57,25 @@ class BunckerHandler(BaseHTTPRequestHandler):
         }
 
     def _check_auth(self) -> str | None:
-        """Run auth middleware. Returns auth_level or None if error sent."""
+        """Run rate limit + auth middleware. Returns auth_level or sends error."""
+        # Rate limit per IP on admin endpoints
+        rate_limiter = getattr(self._server_ref, "rate_limiter", None)
+        if rate_limiter and not rate_limiter.is_allowed(self.client_address[0]):
+            _log.warning(
+                "rate_limited",
+                extra=self._request_meta("rejected"),
+            )
+            body = json.dumps(
+                {"error": "Too many requests", "code": "RATE_LIMITED"}
+            ).encode()
+            self.send_response(429)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Retry-After", "60")
+            self.end_headers()
+            self.wfile.write(body)
+            return None
+
         try:
             level = authenticate_request(
                 self,
@@ -516,6 +535,10 @@ class BunckerHandler(BaseHTTPRequestHandler):
             )
             return
 
+        store = self._get_store()
+        if not self._check_disk_space(store, content_length):
+            return
+
         # Read the raw body (encrypted .tar.enc file)
         raw_data = self.rfile.read(content_length)
 
@@ -523,7 +546,6 @@ class BunckerHandler(BaseHTTPRequestHandler):
         import tempfile
 
         aes_key, hmac_key = crypto_keys
-        store = self._get_store()
 
         with tempfile.NamedTemporaryFile(suffix=".tar.enc", delete=False) as tmp:
             tmp.write(raw_data)
@@ -601,6 +623,10 @@ class BunckerHandler(BaseHTTPRequestHandler):
 
         # Determine upload file path (deterministic for resume)
         store = self._get_store()
+
+        if not self._check_disk_space(store, content_length):
+            self._drain_body()
+            return
         uploads_dir = store.path / ".uploads"
         uploads_dir.mkdir(parents=True, exist_ok=True)
         upload_key = hashlib.sha256(
@@ -887,6 +913,19 @@ class BunckerHandler(BaseHTTPRequestHandler):
     def _get_store(self) -> Store:
         """Get the store instance from the server."""
         return self._server_ref.store
+
+    def _check_disk_space(self, store: Store, required: int) -> bool:
+        """Check available disk space. Returns False and sends error if insufficient."""
+        free = shutil.disk_usage(store.path).free
+        if free < required * 2:
+            self._send_admin_error(
+                507,
+                "INSUFFICIENT_SPACE",
+                f"Not enough disk space: {free} bytes free, "
+                f"need ~{required * 2} bytes (upload + extraction)",
+            )
+            return False
+        return True
 
     def _read_json_body(self) -> dict | None:
         """Read and parse a JSON request body. Returns None on error."""

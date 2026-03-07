@@ -767,3 +767,61 @@ class TestAdminInputValidation:
         except HTTPError as e:
             status = e.code
         assert status == 400
+
+
+class TestRateLimiter:
+    """Tests for per-IP rate limiting on admin endpoints."""
+
+    def test_rate_limiter_allows_within_limit(self):
+        from buncker.server import RateLimiter
+
+        rl = RateLimiter(max_requests=5, window=60)
+        for _ in range(5):
+            assert rl.is_allowed("10.0.0.1")
+
+    def test_rate_limiter_blocks_over_limit(self):
+        from buncker.server import RateLimiter
+
+        rl = RateLimiter(max_requests=3, window=60)
+        for _ in range(3):
+            assert rl.is_allowed("10.0.0.1")
+        assert not rl.is_allowed("10.0.0.1")
+
+    def test_rate_limiter_per_ip_isolation(self):
+        from buncker.server import RateLimiter
+
+        rl = RateLimiter(max_requests=2, window=60)
+        assert rl.is_allowed("10.0.0.1")
+        assert rl.is_allowed("10.0.0.1")
+        assert not rl.is_allowed("10.0.0.1")
+        # Different IP is not affected
+        assert rl.is_allowed("10.0.0.2")
+
+    def test_rate_limit_returns_429(self, store, tmp_path):
+        """Integration test: server returns 429 when rate limit exceeded."""
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test-rl",
+            log_path=tmp_path / "buncker.log",
+        )
+        # Set a very low limit for testing
+        srv.rate_limiter._max = 2
+        srv.start()
+        url = f"http://127.0.0.1:{srv.port}"
+
+        try:
+            # First 2 requests should succeed
+            for _ in range(2):
+                status, _, _ = _get(f"{url}/admin/status")
+                assert status == 200
+
+            # Third request should be rate limited
+            status, body, headers = _get(f"{url}/admin/status")
+            assert status == 429
+            data = json.loads(body)
+            assert data["code"] == "RATE_LIMITED"
+            assert "Retry-After" in headers
+        finally:
+            srv.stop()
