@@ -9,6 +9,7 @@
   <img src="https://img.shields.io/badge/platform-Debian%2FUbuntu-A81D33.svg?logo=debian&logoColor=white" alt="Platform">
   <img src="https://img.shields.io/badge/packaging-.deb-orange.svg" alt="Packaging">
   <img src="https://img.shields.io/badge/status-v0.8.0-brightgreen.svg" alt="Status">
+  <img src="https://img.shields.io/badge/coverage-%E2%89%A580%25-brightgreen.svg" alt="Coverage">
 </p>
 
 ---
@@ -463,8 +464,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| PBKDF2 iterations bump | Increase key derivation from 600k to 1M+ iterations (OWASP 2023+) | Planned |
-| PRD mnemonic doc fix | Fix PRD to reflect 16-word mnemonic (salt encoded in last 4 words) | Planned |
+| PBKDF2 iterations bump | Increase key derivation from 600k to 1.2M iterations (2x OWASP 2023 minimum) | Done |
+| PRD mnemonic doc fix | Fix PRD to reflect 16-word mnemonic (salt encoded in last 4 words) | Done |
 | Import cleanup flag | `--cleanup` flag on `buncker import` to delete .tar.enc after successful import | Planned |
 | TLS cert expiry warning | Warn in `status` and logs when auto-signed certificate expires within 30 days | Planned |
 | Streamlined `api-setup` | Auto-export ca.pem to a known path and display cert fingerprint during setup | Planned |
@@ -475,10 +476,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines
 | GC impact report | `gc --report` shows which images become non-pullable if candidates are deleted | Planned |
 | Fetch rate limiting | Auto-pace blob downloads based on registry `RateLimit-*` headers | Planned |
 | Manifest auto-refresh | buncker-fetch re-downloads manifests on every fetch and warns if upstream digest changed | Planned |
-| Thread-safe analysis state | Add `threading.Lock` around `_last_analysis` in server/handler for correctness | Planned |
-| Path traversal hardening | Use `Path.resolve()` + file existence check in `/admin/analyze` path mode | Planned |
+| Thread-safe analysis state | Add `threading.Lock` around `_last_analysis` in server/handler for correctness | Done |
+| Path traversal hardening | Use `Path.resolve()` + file existence check in `/admin/analyze` path mode | Done |
 | Admin API rate-limiting | Per-IP request throttling on `/admin/*` endpoints to mitigate DoS on LAN exposure | Planned |
-| Test coverage reporting | Add pytest-cov with coverage badge in README and CI coverage gate | Planned |
+| Test coverage reporting | Add pytest-cov with coverage badge in README and CI coverage gate | Done |
 
 ## License
 
