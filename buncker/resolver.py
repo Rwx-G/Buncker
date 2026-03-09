@@ -341,10 +341,34 @@ def _substitute_args(
     build_args: dict[str, str],
     line_number: int,
 ) -> str:
-    """Replace $VAR and ${VAR} references with ARG values."""
+    """Replace $VAR, ${VAR}, and ${VAR:-default} references with ARG values.
+
+    Supports Dockerfile variable substitution syntax:
+    - ``$VAR`` and ``${VAR}`` - simple substitution
+    - ``${VAR:-default}`` - use default if VAR is unset or empty
+    - ``${VAR:+replacement}`` - use replacement if VAR is set and non-empty
+    """
 
     def replacer(match: re.Match) -> str:
-        var = match.group(1) or match.group(2)
+        # ${VAR:-default} or ${VAR:+replacement}
+        if match.group(1) is not None:
+            var = match.group(1)
+            op = match.group(2)
+            fallback = match.group(3)
+            value = build_args.get(var, args.get(var))
+            if op == ":-":
+                if value is None or value == "":
+                    return fallback
+                return value
+            if op == ":+":
+                if value is not None and value != "":
+                    return fallback
+                return ""
+            return value or fallback
+
+        # ${VAR} simple form
+        var = match.group(4) if match.group(4) is not None else match.group(5)
+
         if var in build_args:
             return build_args[var]
         if var in args:
@@ -361,7 +385,14 @@ def _substitute_args(
             context={"arg": var, "line": line_number},
         )
 
-    return re.sub(r"\$\{(\w+)\}|\$(\w+)", replacer, text)
+    # Match ${VAR:-default}, ${VAR:+replacement}, ${VAR}, or $VAR
+    return re.sub(
+        r"\$\{(\w+)(:-|:\+)([^}]*)\}"  # ${VAR:-default} or ${VAR:+val}
+        r"|\$\{(\w+)\}"  # ${VAR}
+        r"|\$(\w+)",  # $VAR
+        replacer,
+        text,
+    )
 
 
 def _parse_image_ref(

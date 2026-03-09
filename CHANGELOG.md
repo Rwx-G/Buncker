@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fetch rate limiting: `buncker-fetch` now retries on HTTP 429 using `Retry-After` header instead of failing immediately
 - Rate limit observability: logs warning when `RateLimit-Remaining` drops below 10 on successful responses
 - Manifest auto-refresh: `buncker-fetch` tracks manifest digests across fetches and warns when upstream content changes
+- Dockerfile ARG substitution now supports `${VAR:-default}` and `${VAR:+replacement}` syntax
 
 ### Fixed
 

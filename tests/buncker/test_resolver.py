@@ -153,6 +153,65 @@ class TestArgs:
         with pytest.raises(ResolverError, match="not defined"):
             parse_dockerfile(df)
 
+    def test_arg_default_fallback(self, tmp_path):
+        """${VAR:-default} uses fallback when VAR is unset."""
+        df = tmp_path / "Dockerfile"
+        df.write_text("FROM nginx:${VERSION:-1.25}\n")
+
+        images = parse_dockerfile(df)
+        assert images[0].tag == "1.25"
+
+    def test_arg_default_not_used_when_set(self, tmp_path):
+        """${VAR:-default} uses VAR value when defined."""
+        df = tmp_path / "Dockerfile"
+        df.write_text(
+            "ARG VERSION=1.26\n"
+            "FROM nginx:${VERSION:-1.25}\n"
+        )
+
+        images = parse_dockerfile(df)
+        assert images[0].tag == "1.26"
+
+    def test_arg_default_with_build_arg_override(self, tmp_path):
+        """${VAR:-default} uses build-arg when provided."""
+        df = tmp_path / "Dockerfile"
+        df.write_text("FROM nginx:${VERSION:-1.25}\n")
+
+        images = parse_dockerfile(
+            df, build_args={"VERSION": "1.27"}
+        )
+        assert images[0].tag == "1.27"
+
+    def test_arg_default_empty_string_uses_fallback(self, tmp_path):
+        """${VAR:-default} uses fallback when VAR is empty string."""
+        df = tmp_path / "Dockerfile"
+        df.write_text(
+            'ARG VERSION=""\n'
+            "FROM nginx:${VERSION:-1.25}\n"
+        )
+
+        images = parse_dockerfile(df)
+        assert images[0].tag == "1.25"
+
+    def test_arg_replacement_when_set(self, tmp_path):
+        """${VAR:+replacement} uses replacement when VAR is set."""
+        df = tmp_path / "Dockerfile"
+        df.write_text(
+            "ARG USE_ALPINE=yes\n"
+            "FROM ${USE_ALPINE:+alpine}:3.19\n"
+        )
+
+        images = parse_dockerfile(df)
+        assert images[0].repository == "library/alpine"
+
+    def test_arg_replacement_when_unset(self, tmp_path):
+        """${VAR:+replacement} returns empty when VAR is unset."""
+        df = tmp_path / "Dockerfile"
+        df.write_text("FROM nginx${SUFFIX:+-slim}:1.25\n")
+
+        images = parse_dockerfile(df)
+        assert images[0].repository == "library/nginx"
+
 
 class TestPlatform:
     """Tests for --platform flag."""
@@ -166,6 +225,41 @@ class TestPlatform:
         assert images[0].platform == "linux/arm64"
         assert images[0].repository == "library/nginx"
         assert images[0].tag == "1.25"
+
+    def test_platform_with_arg_variable(self, tmp_path):
+        df = tmp_path / "Dockerfile"
+        df.write_text(
+            "ARG TARGETPLATFORM=linux/amd64\n"
+            "FROM --platform=${TARGETPLATFORM} nginx:1.25\n"
+        )
+
+        images = parse_dockerfile(df)
+
+        assert images[0].platform == "linux/amd64"
+
+    def test_platform_arg_override(self, tmp_path):
+        df = tmp_path / "Dockerfile"
+        df.write_text(
+            "ARG TARGETPLATFORM=linux/amd64\n"
+            "FROM --platform=${TARGETPLATFORM} nginx:1.25\n"
+        )
+
+        images = parse_dockerfile(
+            df,
+            build_args={"TARGETPLATFORM": "linux/arm64"},
+        )
+
+        assert images[0].platform == "linux/arm64"
+
+    def test_platform_with_variant(self, tmp_path):
+        df = tmp_path / "Dockerfile"
+        df.write_text(
+            "FROM --platform=linux/arm/v7 nginx:1.25\n"
+        )
+
+        images = parse_dockerfile(df)
+
+        assert images[0].platform == "linux/arm/v7"
 
 
 class TestDigest:
