@@ -15,8 +15,8 @@ COPY dist/buncker-fetch_*_all.deb /tmp/buncker-fetch.deb
 # Install packages
 RUN dpkg -i /tmp/buncker.deb /tmp/buncker-fetch.deb
 
-# Copy verification script
+# Copy verification script and strip CRLF (Windows git autocrlf)
 COPY tests/deb-install/verify.sh /verify.sh
-RUN chmod +x /verify.sh
+RUN sed -i 's/\r$//' /verify.sh && chmod +x /verify.sh
 
 CMD ["/verify.sh"]
