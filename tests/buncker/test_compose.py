@@ -173,6 +173,75 @@ class TestParseComposeContent:
             parse_compose_content("version: '3'\n")
 
 
+class TestParseComposeEdgeCases:
+    """Tests for edge cases in parse_compose and parse_compose_content."""
+
+    def test_yaml_not_dict_raises(self, tmp_path: Path) -> None:
+        """YAML that is a list instead of dict raises error."""
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text("- item1\n- item2\n")
+        with pytest.raises(ResolverError, match="must be a YAML mapping"):
+            parse_compose(compose)
+
+    def test_services_not_dict_raises(self, tmp_path: Path) -> None:
+        """services: key that is a list raises error."""
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text("services:\n  - web\n  - db\n")
+        with pytest.raises(ResolverError, match="must be a mapping"):
+            parse_compose(compose)
+
+    def test_non_dict_service_skipped(self, tmp_path: Path) -> None:
+        """Service that is not a dict is skipped."""
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(
+            "services:\n  web:\n    image: nginx:1.25\n  broken: not-a-dict\n"
+        )
+        services = parse_compose(compose)
+        assert len(services) == 1
+        assert services[0].name == "web"
+
+    def test_invalid_build_type_skipped(self, tmp_path: Path) -> None:
+        """Service with build: 123 (not str/dict) is skipped."""
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(
+            "services:\n  web:\n    image: nginx:1.25\n  broken:\n    build: 123\n"
+        )
+        services = parse_compose(compose)
+        assert len(services) == 1
+        assert services[0].name == "web"
+
+    def test_content_yaml_not_dict_raises(self) -> None:
+        """Content that is a list raises error."""
+        with pytest.raises(ResolverError, match="must be a YAML mapping"):
+            parse_compose_content("- item1\n- item2\n")
+
+    def test_content_services_not_dict_raises(self) -> None:
+        """services: as list raises error in content mode."""
+        with pytest.raises(ResolverError, match="must be a mapping"):
+            parse_compose_content("services:\n  - web\n  - db\n")
+
+    def test_content_non_dict_service_skipped(self) -> None:
+        """Non-dict service in content mode is skipped."""
+        content = "services:\n  web:\n    image: nginx:1.25\n  broken: not-a-dict\n"
+        services = parse_compose_content(content)
+        assert len(services) == 1
+        assert services[0].name == "web"
+
+    def test_content_no_image_no_build_skipped(self) -> None:
+        """Service with neither image nor build is skipped in content mode."""
+        content = (
+            "services:\n"
+            "  web:\n"
+            "    image: nginx:1.25\n"
+            "  sidecar:\n"
+            "    volumes:\n"
+            "      - data:/data\n"
+        )
+        services = parse_compose_content(content)
+        assert len(services) == 1
+        assert services[0].name == "web"
+
+
 class TestResolveCompose:
     """Tests for resolve_compose() integration with resolver."""
 
@@ -240,3 +309,69 @@ class TestResolveCompose:
         assert len(result.missing_blobs) == 1
         assert result.missing_blobs[0]["digest"] == "sha256:bbb"
         assert "sha256:aaa" in result.present_blobs
+
+    def test_compose_with_dockerfile_service(self, tmp_path: Path) -> None:
+        """Compose with dockerfile_path resolves through Dockerfile pipeline."""
+        from unittest.mock import MagicMock
+
+        from buncker.compose import ComposeService
+        from buncker.resolver import resolve_compose
+
+        dockerfile = tmp_path / "Dockerfile"
+        dockerfile.write_text("FROM nginx:1.25\n")
+
+        mock_manifest = {
+            "config": {"digest": "sha256:aaa", "size": 100},
+            "layers": [
+                {
+                    "digest": "sha256:bbb",
+                    "size": 200,
+                    "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                },
+            ],
+        }
+
+        services = [
+            ComposeService("app", None, dockerfile, tmp_path),
+        ]
+
+        mock_store = MagicMock()
+        mock_store.list_missing.return_value = ["sha256:bbb"]
+        mock_cache = MagicMock()
+        mock_cache.get_manifest.return_value = mock_manifest
+
+        result = resolve_compose(
+            services,
+            store=mock_store,
+            registry_client=mock_cache,
+        )
+
+        assert len(result.images) == 1
+        assert len(result.missing_blobs) == 1
+
+    def test_compose_dockerfile_error_produces_warning(self, tmp_path: Path) -> None:
+        """Bad Dockerfile in compose produces warning, not crash."""
+        from unittest.mock import MagicMock
+
+        from buncker.compose import ComposeService
+        from buncker.resolver import resolve_compose
+
+        bad_dockerfile = tmp_path / "missing" / "Dockerfile"
+
+        services = [
+            ComposeService("broken", None, bad_dockerfile, tmp_path),
+            ComposeService("db", "postgres:16", None, None),
+        ]
+
+        mock_store = MagicMock()
+        mock_store.list_missing.return_value = []
+        mock_cache = MagicMock()
+        mock_cache.get_manifest.return_value = None
+
+        result = resolve_compose(
+            services,
+            store=mock_store,
+            registry_client=mock_cache,
+        )
+
+        assert any("broken" in w.lower() or "Service" in w for w in result.warnings)

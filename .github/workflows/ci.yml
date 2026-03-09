@@ -27,7 +27,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install pytest pytest-cov cryptography
+      - run: pip install pytest pytest-cov cryptography pyyaml
       - name: Run unit and integration tests
         run: pytest -m "not e2e" --cov=buncker --cov=buncker_fetch --cov=shared --cov-fail-under=80
       - name: Run e2e tests

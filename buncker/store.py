@@ -78,12 +78,13 @@ class Store:
 
         blob_path = self._blobs / digest_hex
 
+        if blob_path.is_symlink():
+            raise StoreError(
+                f"Symlink at blob path rejected: {blob_path}",
+                context={"digest": expected_digest},
+            )
+
         if not blob_path.exists():
-            if blob_path.is_symlink():
-                raise StoreError(
-                    f"Symlink at blob path rejected: {blob_path}",
-                    context={"digest": expected_digest},
-                )
             fd, tmp = tempfile.mkstemp(dir=self._blobs)
             try:
                 os.write(fd, data)
