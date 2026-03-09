@@ -110,13 +110,18 @@ class TestGenerateRequest:
 
 
 def _build_response_tar(
-    blobs: dict[str, bytes], errors: list[dict] | None = None
+    blobs: dict[str, bytes],
+    errors: list[dict] | None = None,
+    deb_name: str | None = None,
+    deb_content: bytes | None = None,
 ) -> bytes:
     """Build a tar archive matching the transfer response format.
 
     Args:
         blobs: Mapping of digest_hex -> blob content.
         errors: Optional ERRORS.json content.
+        deb_name: Optional .deb filename to include.
+        deb_content: Optional .deb content bytes.
 
     Returns:
         Tar bytes.
@@ -142,6 +147,12 @@ def _build_response_tar(
             info = tarfile.TarInfo(name="ERRORS.json")
             info.size = len(errors_bytes)
             tar.addfile(info, io.BytesIO(errors_bytes))
+
+        # .deb for auto-update (FR15)
+        if deb_name and deb_content:
+            info = tarfile.TarInfo(name=deb_name)
+            info.size = len(deb_content)
+            tar.addfile(info, io.BytesIO(deb_content))
 
     return buf.getvalue()
 
@@ -467,3 +478,55 @@ class TestImportResponse:
 
         # cache_manifest should not have been called (path too short)
         mock_cache.cache_manifest.assert_not_called()
+
+    def test_deb_extracted_to_updates_dir(self, crypto_keys, store, tmp_path):
+        """A .deb in the response is extracted to store/updates/ (FR15)."""
+        aes_key, hmac_key = crypto_keys
+
+        blob = b"some blob"
+        blob_hex = hashlib.sha256(blob).hexdigest()
+
+        deb_content = b"fake deb package data"
+        deb_name = "buncker_1.0.0_all.deb"
+
+        tar_bytes = _build_response_tar(
+            {blob_hex: blob}, deb_name=deb_name, deb_content=deb_content
+        )
+        encrypted = _encrypt_response(tar_bytes, aes_key, hmac_key)
+
+        response_path = tmp_path / "response.tar.enc"
+        response_path.write_bytes(encrypted)
+
+        result = import_response(
+            response_path,
+            aes_key=aes_key,
+            hmac_key=hmac_key,
+            store=store,
+        )
+
+        assert result["imported"] == 1
+        assert "update_deb" in result
+        deb_dest = store.path / "updates" / deb_name
+        assert deb_dest.exists()
+        assert deb_dest.read_bytes() == deb_content
+
+    def test_no_deb_means_no_update_key(self, crypto_keys, store, tmp_path):
+        """Without .deb, result has no update_deb key."""
+        aes_key, hmac_key = crypto_keys
+
+        blob = b"blob data"
+        blob_hex = hashlib.sha256(blob).hexdigest()
+        tar_bytes = _build_response_tar({blob_hex: blob})
+        encrypted = _encrypt_response(tar_bytes, aes_key, hmac_key)
+
+        response_path = tmp_path / "response.tar.enc"
+        response_path.write_bytes(encrypted)
+
+        result = import_response(
+            response_path,
+            aes_key=aes_key,
+            hmac_key=hmac_key,
+            store=store,
+        )
+
+        assert "update_deb" not in result

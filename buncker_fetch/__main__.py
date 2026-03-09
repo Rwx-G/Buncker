@@ -111,6 +111,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=4,
         help="Number of parallel downloads",
     )
+    fetch_parser.add_argument(
+        "--deb",
+        type=Path,
+        default=None,
+        help="Path to buncker .deb to include for offline auto-update",
+    )
     fetch_parser.set_defaults(func=cmd_fetch)
 
     # status
@@ -340,6 +346,15 @@ def cmd_fetch(args: argparse.Namespace) -> int:
     if output_dir is None:
         tp = config.get("transfer_path", "")
         output_dir = Path(tp) if tp else Path.cwd()
+    # Resolve .deb for auto-update (FR15)
+    deb_path = getattr(args, "deb", None)
+    if deb_path and not deb_path.exists():
+        _print_error(f".deb file not found: {deb_path}", args)
+        return 1
+    if deb_path:
+        if not getattr(args, "json_output", False):
+            print(f"Including .deb for offline update: {deb_path.name}", file=sys.stderr)
+
     response_path = build_response(
         cache,
         blobs,
@@ -348,6 +363,7 @@ def cmd_fetch(args: argparse.Namespace) -> int:
         hmac_key=hmac_key,
         source_id=source_id,
         output_dir=output_dir,
+        deb_path=deb_path,
         manifests=fetched_manifests,
     )
 
