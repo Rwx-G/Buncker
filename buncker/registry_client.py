@@ -107,6 +107,67 @@ class ManifestCache:
 
         return json.loads(path.read_text())
 
+    def is_stale(
+        self,
+        registry: str,
+        repository: str,
+        tag: str,
+        platform: str,
+        ttl_days: int,
+    ) -> bool | None:
+        """Check if a cached manifest exceeds the TTL.
+
+        Args:
+            registry: Registry hostname.
+            repository: Repository path.
+            tag: Image tag.
+            platform: OCI platform string.
+            ttl_days: Maximum age in days before manifest is stale.
+
+        Returns:
+            None if manifest not cached, True if stale, False if fresh.
+        """
+        manifest = self.get_manifest(registry, repository, tag, platform)
+        if manifest is None:
+            return None
+
+        buncker = manifest.get("_buncker", {})
+        cached_at_str = buncker.get("cached_at")
+        if not cached_at_str:
+            return True  # No timestamp means stale
+
+        cached_at = datetime.fromisoformat(cached_at_str)
+        age = datetime.now(tz=UTC) - cached_at
+        return age.days >= ttl_days
+
+    def count_stale(self, ttl_days: int) -> int:
+        """Count all cached manifests that exceed the TTL.
+
+        Args:
+            ttl_days: Maximum age in days before manifest is stale.
+
+        Returns:
+            Number of stale manifests.
+        """
+        if not self._manifests.exists():
+            return 0
+
+        count = 0
+        now = datetime.now(tz=UTC)
+        for path in self._manifests.rglob("*.json"):
+            try:
+                data = json.loads(path.read_text())
+                cached_at_str = data.get("_buncker", {}).get("cached_at")
+                if not cached_at_str:
+                    count += 1
+                    continue
+                cached_at = datetime.fromisoformat(cached_at_str)
+                if (now - cached_at).days >= ttl_days:
+                    count += 1
+            except (json.JSONDecodeError, ValueError):
+                continue
+        return count
+
     def _lookup_by_digest(self, digest: str) -> dict | None:
         """Scan all cached manifests for one matching source_digest."""
         if not self._manifests.exists():

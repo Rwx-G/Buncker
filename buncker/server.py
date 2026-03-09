@@ -100,6 +100,7 @@ class BunckerServer:
         tls_cert: Path | None = None,
         tls_key: Path | None = None,
         oci_restrict: bool = False,
+        manifest_ttl: int = 30,
     ) -> None:
         self._bind = bind
         self._port = port
@@ -115,6 +116,7 @@ class BunckerServer:
         self._tls_cert = tls_cert
         self._tls_key = tls_key
         self.oci_restrict = oci_restrict
+        self.manifest_ttl = manifest_ttl
         self._start_time: float | None = None
         self._last_analysis = None
         self._analysis_lock = threading.Lock()

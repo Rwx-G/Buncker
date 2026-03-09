@@ -433,6 +433,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
             "missing_blobs": result.missing_blobs,
             "total_missing_size": result.total_missing_size,
             "warnings": result.warnings,
+            "stale_manifests": result.stale_manifests,
         }
 
         is_compose = result.source_path == "compose"
@@ -446,6 +447,10 @@ class BunckerHandler(BaseHTTPRequestHandler):
             },
         )
         self._send_json(200, report)
+
+    def _get_manifest_ttl(self) -> int:
+        """Get manifest_ttl from server config."""
+        return getattr(self._server_ref, "manifest_ttl", 30)
 
     def _analyze_dockerfile(self, content, path_str, build_args, store):
         """Analyze a single Dockerfile. Returns (AnalysisResult, temp_path)."""
@@ -493,6 +498,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
             build_args,
             store=store,
             registry_client=ManifestCache(store.path),
+            manifest_ttl=self._get_manifest_ttl(),
         )
         return result, temp_path
 
@@ -530,10 +536,19 @@ class BunckerHandler(BaseHTTPRequestHandler):
             build_args,
             store=store,
             registry_client=ManifestCache(store.path),
+            manifest_ttl=self._get_manifest_ttl(),
         )
 
     def _handle_admin_generate_manifest(self):
         """POST /admin/generate-manifest - Generate encrypted transfer request."""
+        content_length = int(self.headers.get("Content-Length", 0))
+        refresh_stale = False
+        if content_length > 0:
+            body = self._read_json_body()
+            if body is None:
+                return
+            refresh_stale = body.get("refresh_stale", False)
+
         with self._server_ref._analysis_lock:
             analysis = self._server_ref._last_analysis
         if analysis is None:
@@ -560,6 +575,37 @@ class BunckerHandler(BaseHTTPRequestHandler):
                     "platform": img.platform or "linux/amd64",
                 }
             )
+
+        # Add stale manifests with refresh flag when requested
+        if refresh_stale:
+            stale_keys: set[str] = set()
+            for sm in getattr(analysis, "stale_manifests", []):
+                key = (
+                    f"{sm['registry']}/{sm['repository']}"
+                    f":{sm['tag']}"
+                )
+                if key not in seen_images:
+                    seen_images.add(key)
+                    images.append(
+                        {
+                            "registry": sm["registry"],
+                            "repository": sm["repository"],
+                            "tag": sm["tag"],
+                            "platform": sm.get("platform", "linux/amd64"),
+                            "refresh": True,
+                        }
+                    )
+                    stale_keys.add(key)
+                else:
+                    # Mark existing entry as refresh
+                    for img_entry in images:
+                        ek = (
+                            f"{img_entry['registry']}"
+                            f"/{img_entry['repository']}"
+                            f":{img_entry['tag']}"
+                        )
+                        if ek == key:
+                            img_entry["refresh"] = True
 
         if not analysis.missing_blobs and not images:
             self._send_admin_error(409, "NO_MISSING", "no missing blobs to request")
@@ -827,6 +873,16 @@ class BunckerHandler(BaseHTTPRequestHandler):
             uptime = int(time.time() - start_time)
 
         disk = shutil.disk_usage(store.path)
+
+        # Count stale manifests
+        manifest_ttl = getattr(self._server_ref, "manifest_ttl", 30)
+        stale_count = 0
+        if manifest_ttl > 0:
+            from buncker.registry_client import ManifestCache
+
+            cache = ManifestCache(store.path)
+            stale_count = cache.count_stale(manifest_ttl)
+
         status = {
             "version": __version__,
             "source_id": source_id,
@@ -837,6 +893,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
             "disk_used": disk.used,
             "disk_free": disk.free,
             "uptime": uptime,
+            "stale_manifests": stale_count,
         }
         self._send_json(200, status)
 

@@ -104,6 +104,12 @@ def main() -> None:
         default=None,
         help="Output directory for transfer request",
     )
+    sub_gen.add_argument(
+        "--refresh-stale",
+        action="store_true",
+        default=False,
+        help="Include stale manifests for re-download",
+    )
 
     # prepare (analyze + generate-manifest in one step)
     sub_prepare = subparsers.add_parser(
@@ -772,6 +778,7 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         tls_cert=tls_cert,
         tls_key=tls_key,
         oci_restrict=oci_restrict,
+        manifest_ttl=config.get("manifest_ttl", 30),
     )
 
     # Handle SIGTERM/SIGINT
@@ -883,7 +890,10 @@ def _cmd_proxy(args: argparse.Namespace) -> None:
         print(json.dumps(result, indent=2))
 
     elif args.command == "generate-manifest":
-        result = _admin_post_raw(f"{base}/admin/generate-manifest", {})
+        gen_data = {}
+        if getattr(args, "refresh_stale", False):
+            gen_data["refresh_stale"] = True
+        result = _admin_post_raw(f"{base}/admin/generate-manifest", gen_data)
         if isinstance(result, bytes):
             output_dir = (
                 getattr(args, "output", None)
