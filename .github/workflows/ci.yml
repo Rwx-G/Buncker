@@ -64,7 +64,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install build tools
-        run: dnf install -y rpm-build python3
+        run: dnf install -y rpm-build python3 make
       - name: Build .rpm packages
         run: make build-rpm
       - name: Verify .rpm packages
