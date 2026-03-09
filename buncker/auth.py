@@ -57,6 +57,16 @@ def load_api_tokens(path: Path | None = None) -> dict[str, str] | None:
     token_path = path or _DEFAULT_TOKENS_PATH
     if not token_path.exists():
         return None
+
+    # Warn if file permissions are too open
+    with contextlib.suppress(OSError):
+        mode = token_path.stat().st_mode & 0o777
+        if mode != 0o600:
+            _log.warning(
+                "api_tokens_insecure_permissions",
+                extra={"path": str(token_path), "mode": oct(mode)},
+            )
+
     raw = token_path.read_text(encoding="utf-8")
     return json.loads(raw)
 
@@ -85,7 +95,7 @@ def generate_self_signed_cert(tls_dir: Path) -> tuple[Path, Path, Path]:
     ten_years = timedelta(days=3650)
 
     # Generate CA key and certificate
-    ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    ca_key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
     ca_name = x509.Name(
         [
             x509.NameAttribute(NameOID.COMMON_NAME, "Buncker CA"),
@@ -123,7 +133,7 @@ def generate_self_signed_cert(tls_dir: Path) -> tuple[Path, Path, Path]:
     )
 
     # Generate server key and certificate
-    server_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    server_key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
     server_name = x509.Name(
         [
             x509.NameAttribute(NameOID.COMMON_NAME, "buncker"),
@@ -234,6 +244,7 @@ def authenticate_request(
     handler,
     tokens: dict[str, str] | None,
     api_enabled: bool,
+    oci_restrict: bool = False,
 ) -> str:
     """Authenticate an HTTP request and return the auth level.
 
@@ -241,6 +252,7 @@ def authenticate_request(
         handler: The BaseHTTPRequestHandler instance.
         tokens: Loaded API tokens dict, or None if not configured.
         api_enabled: Whether API auth is enabled in config.
+        oci_restrict: Whether OCI endpoints require auth.
 
     Returns:
         Auth level string: 'admin', 'readonly', or 'local'.
@@ -251,11 +263,13 @@ def authenticate_request(
     path = handler.path.split("?")[0]
     method = handler.command
 
-    # OCI endpoints are always unauthenticated
+    # OCI endpoints: unauthenticated unless restrict mode is on
     if path.startswith("/v2"):
-        return "local"
-
-    required_level = get_required_level(path, method)
+        if not oci_restrict:
+            return "local"
+        required_level = "readonly"
+    else:
+        required_level = get_required_level(path, method)
 
     # If auth is not enabled, all endpoints are open
     if not api_enabled or tokens is None:
@@ -271,6 +285,8 @@ def authenticate_request(
         raise AuthError(401, "Authentication required", "AUTH_REQUIRED")
 
     token = auth_header[7:]  # Strip "Bearer "
+    if not token:
+        raise AuthError(401, "Authentication required", "AUTH_REQUIRED")
 
     # Check admin token first (grants full access)
     if _hmac.compare_digest(token, tokens.get("admin", "")):

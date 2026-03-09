@@ -61,6 +61,43 @@ class TestInputValidation:
         assert not _TAG_RE.match("a" * 129)
 
 
+class TestSecurityHeaders:
+    """Tests for security headers on all responses (SEC-09)."""
+
+    def _make_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(bind="127.0.0.1", port=0, store=store, source_id="test")
+        srv.start()
+        return srv
+
+    def test_nosniff_header_present(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            resp = urllib.request.urlopen(f"http://127.0.0.1:{srv.port}/v2/")
+            assert resp.headers["X-Content-Type-Options"] == "nosniff"
+        finally:
+            srv.stop()
+
+    def test_frame_deny_header_present(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            resp = urllib.request.urlopen(f"http://127.0.0.1:{srv.port}/v2/")
+            assert resp.headers["X-Frame-Options"] == "DENY"
+        finally:
+            srv.stop()
+
+    def test_cache_control_header_present(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            resp = urllib.request.urlopen(f"http://127.0.0.1:{srv.port}/v2/")
+            assert resp.headers["Cache-Control"] == "no-store"
+        finally:
+            srv.stop()
+
+
 class TestHealthEndpoint:
     """Tests for GET /admin/health (health-check endpoint)."""
 
@@ -398,6 +435,54 @@ class TestPutImport:
             # Error should be from import pipeline, not checksum
             body = json.loads(exc_info.value.read())
             assert body["code"] != "CHECKSUM_MISMATCH"
+        finally:
+            srv.stop()
+
+    def test_put_invalid_checksum_hex_returns_400(self, tmp_path):
+        """Non-hex checksum value is rejected early (SEC-05)."""
+        srv = self._make_server(tmp_path)
+        try:
+            data = b"some data"
+            url = f"http://127.0.0.1:{srv.port}/admin/import"
+            req = urllib.request.Request(
+                url,
+                data=data,
+                method="PUT",
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(len(data)),
+                    "X-Buncker-Checksum": "sha256:" + "z" * 64,
+                },
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 400
+            body = json.loads(exc_info.value.read())
+            assert body["code"] == "INVALID_CHECKSUM"
+        finally:
+            srv.stop()
+
+    def test_put_short_checksum_returns_400(self, tmp_path):
+        """Checksum with wrong length is rejected (SEC-05)."""
+        srv = self._make_server(tmp_path)
+        try:
+            data = b"some data"
+            url = f"http://127.0.0.1:{srv.port}/admin/import"
+            req = urllib.request.Request(
+                url,
+                data=data,
+                method="PUT",
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(len(data)),
+                    "X-Buncker-Checksum": "sha256:abc123",
+                },
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 400
+            body = json.loads(exc_info.value.read())
+            assert body["code"] == "INVALID_CHECKSUM"
         finally:
             srv.stop()
 
@@ -858,6 +943,541 @@ class TestNotFoundRoutes:
             with pytest.raises(HTTPError) as exc_info:
                 urllib.request.urlopen(req)
             assert exc_info.value.code == 404
+        finally:
+            srv.stop()
+
+
+class TestOciRestriction:
+    """Tests for --restrict-oci mode (Story 7.4)."""
+
+    _TOKENS = {"readonly": "ro_" + "a" * 61, "admin": "ad_" + "b" * 61}
+
+    def _make_restricted_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+            api_tokens=dict(self._TOKENS),
+            api_enabled=True,
+            oci_restrict=True,
+        )
+        srv.start()
+        return srv
+
+    def _make_unrestricted_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+            api_tokens=dict(self._TOKENS),
+            api_enabled=True,
+            oci_restrict=False,
+        )
+        srv.start()
+        return srv
+
+    def test_v2_root_returns_401_without_token_when_restricted(self, tmp_path):
+        srv = self._make_restricted_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/"
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(url)
+            assert exc_info.value.code == 401
+            # Must include WWW-Authenticate header per OCI spec
+            www_auth = exc_info.value.headers.get("WWW-Authenticate", "")
+            assert 'Bearer realm="buncker"' in www_auth
+        finally:
+            srv.stop()
+
+    def test_v2_root_succeeds_with_readonly_token(self, tmp_path):
+        srv = self._make_restricted_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/"
+            req = urllib.request.Request(
+                url,
+                headers={"Authorization": f"Bearer {self._TOKENS['readonly']}"},
+            )
+            resp = urllib.request.urlopen(req)
+            assert resp.status == 200
+        finally:
+            srv.stop()
+
+    def test_v2_root_succeeds_with_admin_token(self, tmp_path):
+        srv = self._make_restricted_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/"
+            req = urllib.request.Request(
+                url,
+                headers={"Authorization": f"Bearer {self._TOKENS['admin']}"},
+            )
+            resp = urllib.request.urlopen(req)
+            assert resp.status == 200
+        finally:
+            srv.stop()
+
+    def test_manifest_returns_401_without_token_when_restricted(self, tmp_path):
+        srv = self._make_restricted_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/library/nginx/manifests/latest"
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(url)
+            assert exc_info.value.code == 401
+            www_auth = exc_info.value.headers.get("WWW-Authenticate", "")
+            assert 'Bearer realm="buncker"' in www_auth
+        finally:
+            srv.stop()
+
+    def test_blob_returns_401_without_token_when_restricted(self, tmp_path):
+        srv = self._make_restricted_server(tmp_path)
+        try:
+            digest = "sha256:" + "a" * 64
+            url = f"http://127.0.0.1:{srv.port}/v2/library/test/blobs/{digest}"
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(url)
+            assert exc_info.value.code == 401
+        finally:
+            srv.stop()
+
+    def test_blob_get_with_readonly_token(self, tmp_path):
+        """Readonly token can pull blobs in restricted mode."""
+        srv = self._make_restricted_server(tmp_path)
+        blob_data = b"restricted blob test"
+        digest = f"sha256:{hashlib.sha256(blob_data).hexdigest()}"
+        srv.store.import_blob(blob_data, digest)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/library/test/blobs/{digest}"
+            req = urllib.request.Request(
+                url,
+                headers={"Authorization": f"Bearer {self._TOKENS['readonly']}"},
+            )
+            resp = urllib.request.urlopen(req)
+            assert resp.status == 200
+            assert resp.read() == blob_data
+        finally:
+            srv.stop()
+
+    def test_default_mode_no_auth_required(self, tmp_path):
+        """When oci_restrict=False, /v2/* endpoints are open."""
+        srv = self._make_unrestricted_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/"
+            resp = urllib.request.urlopen(url)
+            assert resp.status == 200
+        finally:
+            srv.stop()
+
+    def test_head_returns_401_without_token_when_restricted(self, tmp_path):
+        srv = self._make_restricted_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/library/nginx/manifests/latest"
+            req = urllib.request.Request(url, method="HEAD")
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 401
+        finally:
+            srv.stop()
+
+    def test_invalid_token_returns_401(self, tmp_path):
+        srv = self._make_restricted_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/"
+            req = urllib.request.Request(
+                url,
+                headers={"Authorization": "Bearer invalidtoken"},
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 401
+        finally:
+            srv.stop()
+
+
+class TestHeadV2Root:
+    """Tests for HEAD /v2/ (line 178-180)."""
+
+    def _make_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(bind="127.0.0.1", port=0, store=store, source_id="test")
+        srv.start()
+        return srv
+
+    def test_head_v2_returns_200(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/"
+            req = urllib.request.Request(url, method="HEAD")
+            resp = urllib.request.urlopen(req)
+            assert resp.status == 200
+        finally:
+            srv.stop()
+
+
+class TestGcEndpoints:
+    """Tests for GC impact, execute, and report endpoints."""
+
+    def _make_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(bind="127.0.0.1", port=0, store=store, source_id="test")
+        srv.start()
+        return srv
+
+    def test_gc_impact_missing_digests(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/gc/impact"
+            req = urllib.request.Request(
+                url,
+                data=json.dumps({}).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 400
+            body = json.loads(exc_info.value.read())
+            assert body["code"] == "MISSING_FIELD"
+        finally:
+            srv.stop()
+
+    def test_gc_impact_invalid_digest(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/gc/impact"
+            req = urllib.request.Request(
+                url,
+                data=json.dumps({"digests": ["bad"]}).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 400
+            body = json.loads(exc_info.value.read())
+            assert body["code"] == "DIGEST_INVALID"
+        finally:
+            srv.stop()
+
+    def test_gc_impact_valid(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            digest = "sha256:" + "a" * 64
+            url = f"http://127.0.0.1:{srv.port}/admin/gc/impact"
+            req = urllib.request.Request(
+                url,
+                data=json.dumps({"digests": [digest]}).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            resp = urllib.request.urlopen(req)
+            data = json.loads(resp.read())
+            assert "impact" in data
+            assert "affected_images" in data
+        finally:
+            srv.stop()
+
+    def test_gc_execute_missing_digests(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/gc/execute"
+            req = urllib.request.Request(
+                url,
+                data=json.dumps({"operator": "admin"}).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 400
+        finally:
+            srv.stop()
+
+    def test_gc_execute_missing_operator(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            digest = "sha256:" + "a" * 64
+            url = f"http://127.0.0.1:{srv.port}/admin/gc/execute"
+            req = urllib.request.Request(
+                url,
+                data=json.dumps({"digests": [digest]}).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 400
+            body = json.loads(exc_info.value.read())
+            assert body["code"] == "MISSING_FIELD"
+        finally:
+            srv.stop()
+
+    def test_gc_execute_invalid_operator(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            digest = "sha256:" + "a" * 64
+            url = f"http://127.0.0.1:{srv.port}/admin/gc/execute"
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(
+                    {"digests": [digest], "operator": "../../etc/passwd"}
+                ).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 400
+            body = json.loads(exc_info.value.read())
+            assert body["code"] == "INVALID_OPERATOR"
+        finally:
+            srv.stop()
+
+    def test_gc_execute_invalid_digest(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/gc/execute"
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(
+                    {"digests": ["baddigest"], "operator": "admin"}
+                ).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 400
+            body = json.loads(exc_info.value.read())
+            assert body["code"] == "DIGEST_INVALID"
+        finally:
+            srv.stop()
+
+    def test_gc_report_invalid_inactive_days(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/gc/report?inactive_days=abc"
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(url)
+            assert exc_info.value.code == 400
+            body = json.loads(exc_info.value.read())
+            assert body["code"] == "INVALID_PARAM"
+        finally:
+            srv.stop()
+
+
+class TestImportNoCryptoKeys:
+    """Tests for import endpoints without crypto keys configured."""
+
+    def _make_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(bind="127.0.0.1", port=0, store=store, source_id="test")
+        srv.start()
+        return srv
+
+    def test_post_import_no_crypto_keys_returns_500(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/import"
+            req = urllib.request.Request(
+                url,
+                data=b"data",
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": "4",
+                },
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 500
+            body = json.loads(exc_info.value.read())
+            assert body["code"] == "NO_CRYPTO_KEYS"
+        finally:
+            srv.stop()
+
+    def test_generate_manifest_no_crypto_keys_returns_500(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            # First analyze to set up state
+            url = f"http://127.0.0.1:{srv.port}/admin/analyze"
+            data = json.dumps({"dockerfile_content": "FROM alpine:3.19\n"}).encode()
+            req = urllib.request.Request(
+                url, data=data, headers={"Content-Type": "application/json"}
+            )
+            urllib.request.urlopen(req)
+
+            # Then try generate without crypto keys
+            url2 = f"http://127.0.0.1:{srv.port}/admin/generate-manifest"
+            req2 = urllib.request.Request(
+                url2, data=b"{}", headers={"Content-Type": "application/json"}
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req2)
+            assert exc_info.value.code == 500
+            body = json.loads(exc_info.value.read())
+            assert body["code"] == "NO_CRYPTO_KEYS"
+        finally:
+            srv.stop()
+
+
+class TestComposeAnalysis:
+    """Tests for compose analysis via /admin/analyze."""
+
+    def _make_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(bind="127.0.0.1", port=0, store=store, source_id="test")
+        srv.start()
+        return srv
+
+    def test_analyze_compose_content(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/analyze"
+            compose_content = (
+                "services:\n  web:\n    image: nginx:1.25\n"
+                "  db:\n    image: postgres:16\n"
+            )
+            data = json.dumps({"compose_content": compose_content}).encode()
+            req = urllib.request.Request(
+                url, data=data, headers={"Content-Type": "application/json"}
+            )
+            resp = urllib.request.urlopen(req)
+            assert resp.status == 200
+            result = json.loads(resp.read())
+            assert "images" in result
+            assert len(result["images"]) >= 2
+        finally:
+            srv.stop()
+
+    def test_analyze_compose_path_localhost(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        compose_file = tmp_path / "docker-compose.yml"
+        compose_file.write_text("services:\n  web:\n    image: nginx:1.25\n")
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/analyze"
+            data = json.dumps({"compose_path": str(compose_file)}).encode()
+            req = urllib.request.Request(
+                url, data=data, headers={"Content-Type": "application/json"}
+            )
+            resp = urllib.request.urlopen(req)
+            assert resp.status == 200
+            result = json.loads(resp.read())
+            assert "images" in result
+        finally:
+            srv.stop()
+
+
+class TestLogsEdgeCases:
+    """Tests for logs endpoint edge cases."""
+
+    def _make_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        log_path = tmp_path / "test.log"
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+            log_path=log_path,
+        )
+        srv.start()
+        return srv, log_path
+
+    def test_logs_skips_empty_lines(self, tmp_path):
+        srv, log_path = self._make_server(tmp_path)
+        log_path.write_text('\n\n{"event": "test", "ts": "2026-03-09T12:00:00"}\n\n')
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/logs"
+            resp = urllib.request.urlopen(url)
+            data = json.loads(resp.read())
+            assert len(data) == 1
+        finally:
+            srv.stop()
+
+    def test_logs_skips_invalid_json(self, tmp_path):
+        srv, log_path = self._make_server(tmp_path)
+        log_path.write_text(
+            'not json\n{"event": "test", "ts": "2026-03-09T12:00:00"}\n'
+        )
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/logs"
+            resp = urllib.request.urlopen(url)
+            data = json.loads(resp.read())
+            assert len(data) == 1
+            assert data[0]["event"] == "test"
+        finally:
+            srv.stop()
+
+    def test_logs_skips_invalid_timestamp(self, tmp_path):
+        srv, log_path = self._make_server(tmp_path)
+        log_path.write_text(
+            '{"event": "old", "ts": "not-a-date"}\n'
+            '{"event": "new", "ts": "2026-03-09T12:00:00"}\n'
+        )
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/logs?since=2026-03-09T00:00:00"
+            resp = urllib.request.urlopen(url)
+            data = json.loads(resp.read())
+            # "old" has bad timestamp so it's skipped by since filter
+            assert len(data) == 1
+            assert data[0]["event"] == "new"
+        finally:
+            srv.stop()
+
+
+class TestDiskSpaceCheck:
+    """Tests for _check_disk_space."""
+
+    def _make_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(bind="127.0.0.1", port=0, store=store, source_id="test")
+        srv.crypto_keys = (b"\x00" * 32, b"\x00" * 32)
+        srv.start()
+        return srv
+
+    def test_put_import_insufficient_space(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            data = b"test data"
+            checksum = hashlib.sha256(data).hexdigest()
+            url = f"http://127.0.0.1:{srv.port}/admin/import"
+
+            with mock.patch("shutil.disk_usage") as mock_du:
+                mock_du.return_value = mock.Mock(free=10)
+                req = urllib.request.Request(
+                    url,
+                    data=data,
+                    method="PUT",
+                    headers={
+                        "Content-Type": "application/octet-stream",
+                        "Content-Length": str(len(data)),
+                        "X-Buncker-Checksum": f"sha256:{checksum}",
+                    },
+                )
+                with pytest.raises(HTTPError) as exc_info:
+                    urllib.request.urlopen(req)
+                assert exc_info.value.code == 507
+                body = json.loads(exc_info.value.read())
+                assert body["code"] == "INSUFFICIENT_SPACE"
         finally:
             srv.stop()
 

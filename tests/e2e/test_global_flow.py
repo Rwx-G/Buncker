@@ -494,3 +494,154 @@ class TestGlobalFlowAuthTransition:
 
         finally:
             srv.stop()
+
+
+@pytest.mark.e2e
+class TestGlobalFlowOciRestricted:
+    """Full cycle with --restrict-oci: OCI /v2/* endpoints require Bearer token."""
+
+    def test_oci_restricted_full_cycle(self, tmp_path, mock_registry):
+        """OCI endpoints locked down, admin flow + OCI pull with token."""
+        # -- Setup --
+        mnemonic = generate_mnemonic()
+        salt = os.urandom(32)
+        aes_key, hmac_key = derive_keys(mnemonic, salt, iterations=1000)
+
+        store = Store(tmp_path / "store")
+        _setup_store_with_manifest(store)
+
+        tokens = {
+            "readonly": "ro_" + os.urandom(30).hex(),
+            "admin": "ad_" + os.urandom(30).hex(),
+        }
+
+        # Start server with auth + OCI restriction
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            crypto_keys=(aes_key, hmac_key),
+            source_id="e2e-oci-restrict",
+            api_tokens=tokens,
+            api_enabled=True,
+            oci_restrict=True,
+        )
+        srv.start()
+        base = f"http://127.0.0.1:{srv.port}"
+
+        try:
+            # -- OCI /v2/ without token -> 401 with WWW-Authenticate --
+            with pytest.raises(HTTPError) as exc_info:
+                _http_get(base, "/v2/")
+            assert exc_info.value.code == 401
+            www_auth = exc_info.value.headers.get("WWW-Authenticate", "")
+            assert "Bearer" in www_auth
+            assert 'realm="buncker"' in www_auth
+
+            # -- OCI /v2/ with readonly token -> 200 --
+            v2_resp = json.loads(_http_get(base, "/v2/", token=tokens["readonly"]))
+            assert v2_resp["status"] == "ok"
+
+            # -- OCI /v2/ with admin token -> 200 --
+            v2_resp = json.loads(_http_get(base, "/v2/", token=tokens["admin"]))
+            assert v2_resp["status"] == "ok"
+
+            # -- Admin endpoints still work normally with admin token --
+            dockerfile = tmp_path / "Dockerfile"
+            dockerfile.write_text("FROM test.registry.io/myapp:v1\n")
+
+            result = json.loads(
+                _http_post_json(
+                    base,
+                    "/admin/analyze",
+                    {"dockerfile_content": "FROM test.registry.io/myapp:v1\n"},
+                    token=tokens["admin"],
+                )
+            )
+            assert len(result["missing_blobs"]) == 3
+
+            # -- Generate manifest + fetch + import --
+            req = urllib.request.Request(
+                f"{base}/admin/generate-manifest",
+                data=b"",
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": "0",
+                    "Authorization": f"Bearer {tokens['admin']}",
+                },
+            )
+            enc_request = urllib.request.urlopen(req).read()
+
+            req_path = tmp_path / "request.json.enc"
+            req_path.write_bytes(enc_request)
+
+            request_data = process_request(req_path, aes_key=aes_key, hmac_key=hmac_key)
+            cache = Cache(tmp_path / "online_cache")
+            _fetch_blobs_online(mock_registry, request_data["blobs"], cache)
+
+            response_path = build_response(
+                cache,
+                request_data["blobs"],
+                [],
+                aes_key=aes_key,
+                hmac_key=hmac_key,
+                source_id="e2e-oci-restrict",
+                output_dir=tmp_path / "responses",
+            )
+
+            enc_response = response_path.read_bytes()
+            checksum = f"sha256:{hashlib.sha256(enc_response).hexdigest()}"
+
+            import_result = json.loads(
+                _http_put(
+                    base,
+                    "/admin/import",
+                    enc_response,
+                    token=tokens["admin"],
+                    checksum=checksum,
+                )
+            )
+            assert import_result["imported"] == 3
+
+            # -- OCI blob pull without token -> 401 --
+            first_digest = list(BLOB_REGISTRY.keys())[0]
+            with pytest.raises(HTTPError) as exc_info:
+                _http_get(base, f"/v2/test.registry.io/myapp/blobs/{first_digest}")
+            assert exc_info.value.code == 401
+
+            # -- OCI blob pull with readonly token -> 200 --
+            for digest, expected_data in BLOB_REGISTRY.items():
+                blob_bytes = _http_get(
+                    base,
+                    f"/v2/test.registry.io/myapp/blobs/{digest}",
+                    token=tokens["readonly"],
+                )
+                assert blob_bytes == expected_data
+                actual_hash = hashlib.sha256(blob_bytes).hexdigest()
+                assert actual_hash == digest.removeprefix("sha256:")
+
+            # -- OCI manifest pull without token -> 401 --
+            with pytest.raises(HTTPError) as exc_info:
+                _http_get(base, "/v2/test.registry.io/myapp/manifests/v1")
+            assert exc_info.value.code == 401
+
+            # -- OCI manifest pull with token -> 200 --
+            manifest_bytes = _http_get(
+                base,
+                "/v2/test.registry.io/myapp/manifests/v1",
+                token=tokens["readonly"],
+            )
+            manifest_data = json.loads(manifest_bytes)
+            assert manifest_data["schemaVersion"] == 2
+
+            # -- HEAD on OCI blob without token -> 401 --
+            head_req = urllib.request.Request(
+                f"{base}/v2/test.registry.io/myapp/blobs/{first_digest}",
+                method="HEAD",
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(head_req)
+            assert exc_info.value.code == 401
+
+        finally:
+            srv.stop()

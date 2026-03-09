@@ -581,6 +581,44 @@ class TestFetchManifests:
         result = _fetch_manifests(request_data, {})
         assert result == []
 
+    def test_refresh_true_re_fetches_manifest(self):
+        """Image with refresh: true is fetched and includes updated cached_at."""
+        from buncker_fetch.__main__ import _fetch_manifests
+
+        manifest = {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {"digest": "sha256:cfg", "size": 100, "mediaType": "config"},
+            "layers": [{"digest": "sha256:layer1", "size": 200, "mediaType": "layer"}],
+        }
+
+        mock_client = MagicMock()
+        mock_client.fetch_manifest.return_value = manifest
+
+        request_data = {
+            "images": [
+                {
+                    "registry": "docker.io",
+                    "repository": "library/nginx",
+                    "tag": "1.25",
+                    "platform": "linux/amd64",
+                    "refresh": True,
+                }
+            ]
+        }
+
+        with (
+            patch("buncker_fetch.__main__.RegistryClient", return_value=mock_client),
+            patch("buncker_fetch.__main__.load_credentials", return_value=None),
+        ):
+            result = _fetch_manifests(request_data, {})
+
+        assert len(result) == 1
+        assert result[0]["repository"] == "library/nginx"
+        assert "_buncker" in result[0]["manifest"]
+        assert "cached_at" in result[0]["manifest"]["_buncker"]
+        mock_client.fetch_manifest.assert_called_once()
+
 
 class TestFetchEdgeCases:
     """Test fetch command edge cases."""

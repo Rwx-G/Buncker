@@ -65,11 +65,28 @@ def main() -> None:
     )
 
     # serve
-    subparsers.add_parser("serve", help="Start the HTTP daemon")
+    sub_serve = subparsers.add_parser("serve", help="Start the HTTP daemon")
+    sub_serve.add_argument(
+        "--restrict-oci",
+        action="store_true",
+        default=False,
+        help="Require Bearer token on OCI /v2/* endpoints",
+    )
 
     # analyze
-    sub_analyze = subparsers.add_parser("analyze", help="Analyze a Dockerfile")
-    sub_analyze.add_argument("dockerfile", type=Path, help="Path to Dockerfile")
+    sub_analyze = subparsers.add_parser(
+        "analyze", help="Analyze a Dockerfile or Compose file"
+    )
+    analyze_input = sub_analyze.add_mutually_exclusive_group(required=True)
+    analyze_input.add_argument(
+        "dockerfile", type=Path, nargs="?", help="Path to Dockerfile"
+    )
+    analyze_input.add_argument(
+        "--compose",
+        type=Path,
+        default=None,
+        help="Path to docker-compose.yml",
+    )
     sub_analyze.add_argument(
         "--build-arg",
         action="append",
@@ -86,6 +103,12 @@ def main() -> None:
         type=Path,
         default=None,
         help="Output directory for transfer request",
+    )
+    sub_gen.add_argument(
+        "--refresh-stale",
+        action="store_true",
+        default=False,
+        help="Include stale manifests for re-download",
     )
 
     # prepare (analyze + generate-manifest in one step)
@@ -660,6 +683,17 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         print("TLS is mandatory when the API is exposed. Run 'buncker api-setup'.")
         sys.exit(1)
 
+    # Determine OCI restriction from flag or config
+    oci_restrict = getattr(args, "restrict_oci", False)
+    if not oci_restrict:
+        oci_restrict = config.get("oci", {}).get("restrict", False)
+
+    # Refuse to start with --restrict-oci if API auth is not enabled
+    if oci_restrict and not api_config.get("enabled"):
+        print("Error: --restrict-oci requires API authentication to be enabled.")
+        print("Run 'buncker api-setup' first to generate tokens and enable auth.")
+        sys.exit(1)
+
     # Check TLS certificate expiry
     if config.get("tls"):
         _check_tls_cert_expiry(config)
@@ -743,6 +777,8 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         api_enabled=api_enabled,
         tls_cert=tls_cert,
         tls_key=tls_key,
+        oci_restrict=oci_restrict,
+        manifest_ttl=config.get("manifest_ttl", 30),
     )
 
     # Handle SIGTERM/SIGINT
@@ -843,7 +879,10 @@ def _cmd_proxy(args: argparse.Namespace) -> None:
             key, _, value = ba.partition("=")
             build_args[key] = value
 
-        data = {"dockerfile": str(args.dockerfile)}
+        if getattr(args, "compose", None):
+            data = {"compose_path": str(args.compose.resolve())}
+        else:
+            data = {"dockerfile": str(args.dockerfile)}
         if build_args:
             data["build_args"] = build_args
 
@@ -851,7 +890,10 @@ def _cmd_proxy(args: argparse.Namespace) -> None:
         print(json.dumps(result, indent=2))
 
     elif args.command == "generate-manifest":
-        result = _admin_post_raw(f"{base}/admin/generate-manifest", {})
+        gen_data = {}
+        if getattr(args, "refresh_stale", False):
+            gen_data["refresh_stale"] = True
+        result = _admin_post_raw(f"{base}/admin/generate-manifest", gen_data)
         if isinstance(result, bytes):
             output_dir = (
                 getattr(args, "output", None)

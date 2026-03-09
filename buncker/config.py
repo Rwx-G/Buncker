@@ -19,6 +19,7 @@ _DEFAULTS = {
     "crypto": {},
     "private_registries": [],
     "gc": {"inactive_days_threshold": 90},
+    "manifest_ttl": 30,
     "log_level": "INFO",
     "transfer_path": "",
 }
@@ -81,6 +82,13 @@ def validate_config(config: dict) -> None:
         raise ConfigError(
             "store_path must be a non-empty string",
             {"store_path": store_path},
+        )
+
+    manifest_ttl = config.get("manifest_ttl", 30)
+    if not isinstance(manifest_ttl, int) or manifest_ttl < 0:
+        raise ConfigError(
+            f"Invalid manifest_ttl: {manifest_ttl} (must be >= 0)",
+            {"manifest_ttl": manifest_ttl},
         )
 
     log_level = config.get("log_level", "INFO")

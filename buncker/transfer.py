@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import logging
+import os
 import sys
 import tarfile
 import tempfile
@@ -133,11 +134,22 @@ def import_response(
 
         tar_io = io.BytesIO(tar_bytes)
         with tarfile.open(fileobj=tar_io, mode="r:*") as tar:
-            # filter="data" requires Python >= 3.12
-            if sys.version_info >= (3, 12):
-                tar.extractall(path=tmp_path, filter="data")
-            else:
-                tar.extractall(path=tmp_path)
+            try:
+                if sys.version_info >= (3, 12):
+                    tar.extractall(path=tmp_path, filter="data")
+                else:
+                    for member in tar.getmembers():
+                        if os.path.isabs(member.name) or ".." in member.name:
+                            raise TransferError(
+                                f"Unsafe tar member rejected: {member.name}"
+                            )
+                    tar.extractall(path=tmp_path)
+            except TransferError:
+                raise
+            except Exception as exc:
+                if "outside" in str(exc).lower() or "absolute" in str(exc).lower():
+                    raise TransferError(f"Unsafe tar member rejected: {exc}") from exc
+                raise
 
         # Check for ERRORS.json
         errors_file = tmp_path / "ERRORS.json"

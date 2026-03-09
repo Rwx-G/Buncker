@@ -23,16 +23,24 @@
 - Streaming import via PUT with resume support (`Content-Range`) and pre-decryption checksum (`X-Buncker-Checksum`)
 - Enriched audit trail with `client_ip`, `auth_level`, `user_agent` on all API requests
 
-## Out of Scope (V3+)
+## In Scope (V3 - Compose, Packaging, Hardening)
+
+- Docker Compose analysis: `buncker analyze --compose docker-compose.yml` extracts `image:` and `build.dockerfile` from all services
+- New dependency: `python3-yaml` (via apt) for YAML parsing
+- RPM packaging for RHEL/Fedora (`.spec` files, `make build-rpm`)
+- Log rotation via `logrotate.d/buncker` config shipped in .deb and .rpm
+- `--restrict-oci` server flag to require read-only token on `/v2/*` endpoints
+- Manifest cache TTL (default 30 days) with staleness warning in `buncker analyze` and `--refresh-stale` flag on `generate-manifest`
+
+## Out of Scope (V4+)
 
 - **Cosign / supply chain signatures** - optional `--verify-signature` flag on buncker-fetch
 - **Multi-registry offline sync** - shared store via NFS/CIFS (filesystem config), later active replication
-- **RPM / tarball packaging** - if community demand (Fedora, RHEL)
 - **pip / PyPI packaging** - Not planned (contradicts zero-pip philosophy)
 - **Web interface / dashboard** - Not planned. CLI + HTTP API suffice
 - **External monitoring** (Prometheus, Grafana) - Not planned. Audit trail logs cover traceability
 - **Helm charts / Kubernetes manifests support** - Docker images only
-- **Windows / macOS support** - Debian/Ubuntu only
+- **Windows / macOS native support** - buncker-fetch on Windows via WSL2 (documented), no native binary
 - **Daemon auto-update** - The .deb can be included in response.tar.enc but installation remains manual
 
 ---

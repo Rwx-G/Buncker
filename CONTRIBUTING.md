@@ -24,14 +24,14 @@ buncker/
 ├── buncker/         # Offline daemon
 ├── buncker_fetch/   # Online CLI
 ├── tests/           # Tests mirroring source structure
-├── packaging/       # .deb build files
+├── packaging/       # .deb and .rpm build files
 └── docs/            # PRD, architecture, stories
 ```
 
 ## Code Standards
 
 - **Python >= 3.11**, type hints on public signatures
-- **No pip, no venv** - only stdlib + `python3-cryptography` (apt)
+- **No pip, no venv** - only stdlib + `python3-cryptography` + `python3-yaml` (apt/dnf)
 - **Linting:** ruff (rules: E, F, W, I, UP, B, SIM)
 - **Formatting:** ruff format
 - **Tests:** pytest, 80% coverage minimum, 100% on crypto module
@@ -66,8 +66,8 @@ ci: add .deb build step to workflow
 
 ### Version Tags
 
-Releases are tagged with semantic versions: `v0.5.0`, `v0.6.0`, etc.
-Tags trigger the CI build-deb job, producing `.deb` artifacts uploaded to GitHub Releases.
+Releases are tagged with semantic versions: `v0.5.0`, `v1.0.0`, etc.
+Tags trigger the CI build jobs, producing `.deb` and `.rpm` artifacts uploaded to GitHub Releases.
 
 ## Workflow
 

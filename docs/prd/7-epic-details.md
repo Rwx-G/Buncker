@@ -451,3 +451,89 @@ so that we can release with confidence.
 8. All tests run in CI without real network
 
 ---
+
+## Epic 7 - Compose, Packaging, Hardening & Release 1.0
+
+**Goal:** Deliver Docker Compose support, RPM packaging, log rotation, OCI auth restriction, and manifest cache TTL. At the end of this epic, Buncker is feature-complete for v1.0.0: it handles both single Dockerfiles and Compose projects, ships on Debian and RHEL, and provides full security hardening and operational maturity.
+
+### Story 7.1 - Docker Compose Analysis
+
+As an **operator**,
+I want to analyze a `docker-compose.yml` file to extract all image references,
+so that I can synchronize all images needed for a multi-service project in one operation.
+
+**Acceptance Criteria:**
+1. `buncker analyze --compose docker-compose.yml` parses the YAML file and extracts `image:` fields from all services
+2. Services with `build.dockerfile` have their Dockerfile resolved through the existing resolver pipeline
+3. Services with both `image:` and `build:` use the `image:` reference (same as Docker Compose behavior for pre-built images)
+4. Services with only `build.context` (no explicit `dockerfile`) default to `Dockerfile` in the build context directory
+5. The Compose file is validated: missing `services:` key or empty services returns an actionable error
+6. `POST /admin/analyze` accepts `compose_content` (string) for remote clients alongside existing `dockerfile_content`
+7. The analysis result aggregates all images with deduplication (same image used by multiple services counted once)
+8. `python3-yaml` dependency added to .deb control files
+9. Tests: multi-service Compose file, mixed image+build services, deduplication, invalid YAML, remote content mode
+
+### Story 7.2 - RPM Packaging
+
+As a **RHEL/Fedora operator**,
+I want `.rpm` packages for buncker and buncker-fetch,
+so that I can install them on enterprise Linux with native package management.
+
+**Acceptance Criteria:**
+1. `packaging/buncker/rpm/buncker.spec` and `packaging/buncker-fetch/rpm/buncker-fetch.spec` define RPM specs
+2. `make build-rpm` produces `.rpm` files in `dist/` using `rpmbuild`
+3. RPM Requires: `python3 >= 3.11`, `python3-cryptography`, `python3-pyyaml`
+4. buncker.rpm installs same file layout as .deb: `/usr/bin/buncker`, `/usr/lib/buncker/`, `/etc/buncker/config.json`, `buncker.service`
+5. buncker-fetch.rpm installs: `/usr/bin/buncker-fetch`, `/usr/lib/buncker-fetch/`
+6. `%post` scriptlet creates buncker user and directories (mirrors .deb postinst)
+7. `logrotate.d/buncker` config included in buncker.rpm (shared with Story 7.3)
+8. CI: `build-rpm` job in GitHub Actions using Fedora container, RPM artifacts uploaded
+9. Tests: RPM metadata validation (Name, Version, Requires), file list verification
+
+### Story 7.3 - Log Rotation
+
+As an **operator**,
+I want automatic log rotation for Buncker logs,
+so that disk space is managed without manual intervention.
+
+**Acceptance Criteria:**
+1. `packaging/buncker/debian/logrotate` provides a `logrotate.d/buncker` config file
+2. Config rotates `/var/log/buncker/*.log` daily, keeps 30 days, compresses old logs with gzip
+3. Rotation uses `copytruncate` (daemon keeps file handle open, no signal-based rotation needed)
+4. The logrotate config is installed to `/etc/logrotate.d/buncker` by both .deb and .rpm packages
+5. .deb `conffiles` updated to include the logrotate config (preserved on upgrade)
+6. Tests: verify logrotate config syntax is valid (`logrotate -d`), config file present in package
+
+### Story 7.4 - OCI Auth Restriction
+
+As a **security-conscious operator**,
+I want to require authentication on OCI pull endpoints,
+so that only authorized Docker clients can pull images in high-security environments.
+
+**Acceptance Criteria:**
+1. `--restrict-oci` flag on `buncker serve` enables auth on `/v2/*` endpoints
+2. Config option `oci.restrict: true` persisted in `config.json` (default: `false`)
+3. When enabled, `/v2/*` endpoints require a valid read-only or admin Bearer token
+4. `GET /v2/` returns 401 with `WWW-Authenticate: Bearer realm="buncker"` when no valid token is present (standard OCI auth challenge)
+5. Docker clients authenticate via `hosts.toml` configuration with the read-only token
+6. When disabled (default), `/v2/*` behavior is unchanged (unauthenticated, backward compatible)
+7. README updated with `hosts.toml` configuration example for restricted mode
+8. Tests: pull with valid token succeeds, pull without token returns 401 with proper challenge, default mode unchanged
+
+### Story 7.5 - Manifest Cache TTL & Staleness
+
+As an **operator**,
+I want to know when cached manifests are outdated,
+so that I can re-fetch them to stay in sync with upstream registries.
+
+**Acceptance Criteria:**
+1. `manifest_ttl` config option (integer, days, default 30) in `config.json`
+2. `buncker analyze` emits a warning for each manifest whose `_buncker.cached_at` is older than `manifest_ttl` days
+3. Warning format: `"Manifest for {image}:{tag} is {N} days old (TTL: {ttl}d) - consider using --refresh-stale"`
+4. `buncker generate-manifest --refresh-stale` includes stale manifest digests in the transfer request with a `refresh: true` flag
+5. `buncker-fetch` re-downloads manifests flagged with `refresh: true` even if already in local cache
+6. Updated manifests are included in `response.tar.enc` and imported back into the offline manifest cache
+7. `GET /admin/status` includes `stale_manifests` count in the response
+8. Tests: fresh manifest no warning, stale manifest triggers warning, --refresh-stale includes stale in request, buncker-fetch re-fetches flagged manifests
+
+---

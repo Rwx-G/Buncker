@@ -612,6 +612,51 @@ class TestResolveDockerfile:
         result = _build_resolved("docker.io", "library/x", None, None)
         assert result == "docker.io/library/x"
 
+    def test_internal_image_skipped_in_resolve(self, tmp_path):
+        """Internal images (FROM alias) produce no blobs."""
+        df = tmp_path / "Dockerfile"
+        df.write_text("FROM nginx:1.25 AS base\nFROM base\n")
+
+        cache = FakeCache({"docker.io/library/nginx:1.25:linux/amd64": MANIFEST_NGINX})
+        store = FakeStore()
+
+        result = resolve_dockerfile(df, store=store, registry_client=cache)
+        # Only nginx produces blobs, not the internal "base" reference
+        assert len(result.images) == 2
+        assert result.images[1].is_internal is True
+        assert len(result.missing_blobs) == 3  # LAYER_A + LAYER_B + CONFIG_D
+
+    def test_all_digests_already_seen_skips_store(self, tmp_path):
+        """When all digests are already seen, store.list_missing is not called again."""
+        df = tmp_path / "Dockerfile"
+        df.write_text("FROM nginx:1.25\nFROM nginx:1.25\n")
+
+        cache = FakeCache({"docker.io/library/nginx:1.25:linux/amd64": MANIFEST_NGINX})
+        store = FakeStore()
+
+        result = resolve_dockerfile(df, store=store, registry_client=cache)
+        # Second FROM with same image has all digests already seen
+        assert len(result.missing_blobs) == 3
+
+    def test_staleness_warning(self, tmp_path):
+        """Stale manifest produces a warning when TTL is set."""
+        df = tmp_path / "Dockerfile"
+        df.write_text("FROM nginx:1.25\n")
+
+        class StaleCache(FakeCache):
+            def is_stale(self, registry, repository, tag, platform, ttl):
+                return True
+
+        cache = StaleCache({"docker.io/library/nginx:1.25:linux/amd64": MANIFEST_NGINX})
+        store = FakeStore()
+
+        result = resolve_dockerfile(
+            df, store=store, registry_client=cache, manifest_ttl=30
+        )
+        assert any("days old" in w for w in result.warnings)
+        assert len(result.stale_manifests) == 1
+        assert result.stale_manifests[0]["repository"] == "library/nginx"
+
     def test_deduplication_skips_already_seen(self, tmp_path):
         """Two identical FROM lines don't produce duplicate missing blobs."""
         df = tmp_path / "Dockerfile"

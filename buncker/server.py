@@ -99,6 +99,8 @@ class BunckerServer:
         api_enabled: bool = False,
         tls_cert: Path | None = None,
         tls_key: Path | None = None,
+        oci_restrict: bool = False,
+        manifest_ttl: int = 30,
     ) -> None:
         self._bind = bind
         self._port = port
@@ -113,6 +115,8 @@ class BunckerServer:
         self.api_enabled = api_enabled
         self._tls_cert = tls_cert
         self._tls_key = tls_key
+        self.oci_restrict = oci_restrict
+        self.manifest_ttl = manifest_ttl
         self._start_time: float | None = None
         self._last_analysis = None
         self._analysis_lock = threading.Lock()
@@ -133,6 +137,9 @@ class BunckerServer:
         # Wrap socket with TLS if cert/key provided
         if self._tls_cert and self._tls_key:
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            ctx.set_ciphers("ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20")
+            ctx.options |= ssl.OP_NO_SSLv2 | ssl.OP_NO_SSLv3
             ctx.load_cert_chain(self._tls_cert, self._tls_key)
             self._server.socket = ctx.wrap_socket(self._server.socket, server_side=True)
 

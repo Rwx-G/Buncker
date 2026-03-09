@@ -1,0 +1,32 @@
+schema: 1
+story: "7.5"
+story_title: "Manifest Cache TTL & Staleness"
+gate: PASS
+status_reason: >
+  Manifest TTL config, staleness detection, refresh-stale flag, and status
+  endpoint all implemented. 7 new tests cover core staleness logic. All ACs met.
+reviewer: "Quinn (Test Architect)"
+updated: "2026-03-09T00:00:00Z"
+
+waiver: { active: false }
+
+top_issues: []
+
+risk_summary:
+  totals: { critical: 0, high: 0, medium: 0, low: 0 }
+  recommendations:
+    must_fix: []
+    monitor: []
+
+evidence:
+  tests_reviewed: 7
+  risks_identified: 1
+  trace:
+    ac_covered: [1, 2, 3, 4, 5, 6, 7, 8]
+    ac_gaps: []
+
+nfr_validation:
+  security: { status: PASS, notes: "No new attack surface, TTL is informational" }
+  performance: { status: PASS, notes: "count_stale scans only manifest files, lightweight" }
+  reliability: { status: PASS, notes: "Graceful handling of missing cached_at, backward compat for empty body" }
+  maintainability: { status: PASS, notes: "Clean is_stale/count_stale API on ManifestCache" }

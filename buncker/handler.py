@@ -48,6 +48,13 @@ class BunckerHandler(BaseHTTPRequestHandler):
         """Override to use structured logging instead of stderr."""
         _log.debug("http_request", extra={"http_message": format % args})
 
+    def end_headers(self):
+        """Inject security headers on every response."""
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def _request_meta(self, auth_level: str = "local") -> dict:
         """Extract common request metadata for structured logging."""
         return {
@@ -81,6 +88,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
                 self,
                 getattr(self._server_ref, "api_tokens", None),
                 getattr(self._server_ref, "api_enabled", False),
+                oci_restrict=getattr(self._server_ref, "oci_restrict", False),
             )
             self._auth_level = level
             return level
@@ -94,6 +102,15 @@ class BunckerHandler(BaseHTTPRequestHandler):
             self.send_response(e.status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
+            # OCI auth challenge header per Distribution Spec
+            path = urlparse(self.path).path
+            if e.status == 401 and path.startswith("/v2"):
+                self.send_header(
+                    "WWW-Authenticate",
+                    'Bearer realm="buncker",'
+                    'service="buncker",'
+                    'scope="repository:*:pull"',
+                )
             self.end_headers()
             self.wfile.write(body)
             return None
@@ -105,6 +122,11 @@ class BunckerHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         """Route GET requests."""
         path = urlparse(self.path).path
+
+        # Auth check for OCI endpoints when restricted
+        oci_restrict = getattr(self._server_ref, "oci_restrict", False)
+        if path.startswith("/v2") and oci_restrict and self._check_auth() is None:
+            return
 
         if _V2_ROOT.match(path):
             self._handle_v2_root()
@@ -147,6 +169,11 @@ class BunckerHandler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         """Route HEAD requests."""
         path = urlparse(self.path).path
+
+        # Auth check for OCI endpoints when restricted
+        oci_restrict = getattr(self._server_ref, "oci_restrict", False)
+        if path.startswith("/v2") and oci_restrict and self._check_auth() is None:
+            return
 
         if _V2_ROOT.match(path):
             self._handle_v2_root()
@@ -352,60 +379,30 @@ class BunckerHandler(BaseHTTPRequestHandler):
         return client_ip in ("127.0.0.1", "::1", "localhost")
 
     def _handle_admin_analyze(self):
-        """POST /admin/analyze - Analyze a Dockerfile."""
+        """POST /admin/analyze - Analyze a Dockerfile or Compose file."""
         body = self._read_json_body()
         if body is None:
             return
 
         dockerfile_content = body.get("dockerfile_content")
         dockerfile = body.get("dockerfile")
+        compose_content = body.get("compose_content")
+        compose_path_str = body.get("compose_path")
         build_args = body.get("build_args", {})
 
-        if dockerfile_content:
-            # Content mode: write to temp file
-            import tempfile
-
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".Dockerfile", delete=False, encoding="utf-8"
-            ) as tmp:
-                tmp.write(dockerfile_content)
-                dockerfile_path = Path(tmp.name)
-        elif dockerfile:
-            # Path mode: localhost only
-            if not self._is_localhost():
-                self._send_admin_error(
-                    400,
-                    "PATH_NOT_ALLOWED",
-                    "Path-based analysis is only available from localhost. "
-                    "Send dockerfile_content instead.",
-                )
-                return
-
-            # Path traversal prevention: resolve symlinks and verify file exists
-            dockerfile_path = Path(dockerfile).resolve()
-            if ".." in Path(dockerfile).parts or not dockerfile_path.is_file():
-                self._send_admin_error(
-                    400, "INVALID_PATH", "path traversal not allowed"
-                )
-                return
-        else:
-            self._send_admin_error(
-                400, "MISSING_FIELD", "dockerfile or dockerfile_content field required"
-            )
-            return
-
         store = self._get_store()
+        is_compose = compose_content or compose_path_str
+        temp_path = None
 
         try:
-            from buncker.registry_client import ManifestCache
-            from buncker.resolver import resolve_dockerfile
-
-            result = resolve_dockerfile(
-                dockerfile_path,
-                build_args,
-                store=store,
-                registry_client=ManifestCache(store.path),
-            )
+            if is_compose:
+                result = self._analyze_compose(
+                    compose_content, compose_path_str, build_args, store
+                )
+            else:
+                result, temp_path = self._analyze_dockerfile(
+                    dockerfile_content, dockerfile, build_args, store
+                )
         except ResolverError as e:
             self._send_admin_error(400, "RESOLVER_ERROR", str(e))
             return
@@ -413,9 +410,11 @@ class BunckerHandler(BaseHTTPRequestHandler):
             self._send_admin_error(500, "INTERNAL_ERROR", str(e))
             return
         finally:
-            # Clean up temp file from content mode
-            if dockerfile_content:
-                dockerfile_path.unlink(missing_ok=True)
+            if temp_path:
+                temp_path.unlink(missing_ok=True)
+
+        if result is None:
+            return
 
         # Store analysis result for generate-manifest (thread-safe)
         with self._server_ref._analysis_lock:
@@ -441,10 +440,13 @@ class BunckerHandler(BaseHTTPRequestHandler):
             "missing_blobs": result.missing_blobs,
             "total_missing_size": result.total_missing_size,
             "warnings": result.warnings,
+            "stale_manifests": result.stale_manifests,
         }
 
+        is_compose = result.source_path == "compose"
+        event = "compose_analyzed" if is_compose else "dockerfile_analyzed"
         _log.info(
-            "dockerfile_analyzed",
+            event,
             extra={
                 **self._request_meta(self._auth_level),
                 "images": len(report["images"]),
@@ -453,8 +455,107 @@ class BunckerHandler(BaseHTTPRequestHandler):
         )
         self._send_json(200, report)
 
+    def _get_manifest_ttl(self) -> int:
+        """Get manifest_ttl from server config."""
+        return getattr(self._server_ref, "manifest_ttl", 30)
+
+    def _analyze_dockerfile(self, content, path_str, build_args, store):
+        """Analyze a single Dockerfile. Returns (AnalysisResult, temp_path)."""
+        temp_path = None
+
+        if content:
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".Dockerfile", delete=False, encoding="utf-8"
+            ) as tmp:
+                tmp.write(content)
+                dockerfile_path = Path(tmp.name)
+                temp_path = dockerfile_path
+        elif path_str:
+            if not self._is_localhost():
+                self._send_admin_error(
+                    400,
+                    "PATH_NOT_ALLOWED",
+                    "Path-based analysis is only available from localhost. "
+                    "Send dockerfile_content instead.",
+                )
+                return None, None
+
+            dockerfile_path = Path(path_str).resolve()
+            if ".." in Path(path_str).parts or not dockerfile_path.is_file():
+                self._send_admin_error(
+                    400, "INVALID_PATH", "path traversal not allowed"
+                )
+                return None, None
+        else:
+            self._send_admin_error(
+                400,
+                "MISSING_FIELD",
+                "dockerfile, dockerfile_content, compose_path,"
+                " or compose_content field required",
+            )
+            return None, None
+
+        from buncker.registry_client import ManifestCache
+        from buncker.resolver import resolve_dockerfile
+
+        result = resolve_dockerfile(
+            dockerfile_path,
+            build_args,
+            store=store,
+            registry_client=ManifestCache(store.path),
+            manifest_ttl=self._get_manifest_ttl(),
+        )
+        return result, temp_path
+
+    def _analyze_compose(self, content, path_str, build_args, store):
+        """Analyze a Docker Compose file. Returns AnalysisResult."""
+        from buncker.compose import parse_compose, parse_compose_content
+        from buncker.registry_client import ManifestCache
+        from buncker.resolver import resolve_compose
+
+        if content:
+            services = parse_compose_content(content)
+        elif path_str:
+            if not self._is_localhost():
+                self._send_admin_error(
+                    400,
+                    "PATH_NOT_ALLOWED",
+                    "Path-based analysis is only available from localhost. "
+                    "Send compose_content instead.",
+                )
+                return None
+
+            compose_path = Path(path_str).resolve()
+            if ".." in Path(path_str).parts or not compose_path.is_file():
+                self._send_admin_error(
+                    400, "INVALID_PATH", "path traversal not allowed"
+                )
+                return None
+
+            services = parse_compose(compose_path)
+        else:
+            return None
+
+        return resolve_compose(
+            services,
+            build_args,
+            store=store,
+            registry_client=ManifestCache(store.path),
+            manifest_ttl=self._get_manifest_ttl(),
+        )
+
     def _handle_admin_generate_manifest(self):
         """POST /admin/generate-manifest - Generate encrypted transfer request."""
+        content_length = int(self.headers.get("Content-Length", 0))
+        refresh_stale = False
+        if content_length > 0:
+            body = self._read_json_body()
+            if body is None:
+                return
+            refresh_stale = body.get("refresh_stale", False)
+
         with self._server_ref._analysis_lock:
             analysis = self._server_ref._last_analysis
         if analysis is None:
@@ -481,6 +582,34 @@ class BunckerHandler(BaseHTTPRequestHandler):
                     "platform": img.platform or "linux/amd64",
                 }
             )
+
+        # Add stale manifests with refresh flag when requested
+        if refresh_stale:
+            stale_keys: set[str] = set()
+            for sm in getattr(analysis, "stale_manifests", []):
+                key = f"{sm['registry']}/{sm['repository']}:{sm['tag']}"
+                if key not in seen_images:
+                    seen_images.add(key)
+                    images.append(
+                        {
+                            "registry": sm["registry"],
+                            "repository": sm["repository"],
+                            "tag": sm["tag"],
+                            "platform": sm.get("platform", "linux/amd64"),
+                            "refresh": True,
+                        }
+                    )
+                    stale_keys.add(key)
+                else:
+                    # Mark existing entry as refresh
+                    for img_entry in images:
+                        ek = (
+                            f"{img_entry['registry']}"
+                            f"/{img_entry['repository']}"
+                            f":{img_entry['tag']}"
+                        )
+                        if ek == key:
+                            img_entry["refresh"] = True
 
         if not analysis.missing_blobs and not images:
             self._send_admin_error(409, "NO_MISSING", "no missing blobs to request")
@@ -618,6 +747,14 @@ class BunckerHandler(BaseHTTPRequestHandler):
             return
 
         expected_hash = checksum_header[7:]  # Strip "sha256:"
+        if not re.match(r"^[a-f0-9]{64}$", expected_hash):
+            self._drain_body()
+            self._send_admin_error(
+                400,
+                "INVALID_CHECKSUM",
+                "X-Buncker-Checksum must be sha256:<64 hex chars>",
+            )
+            return
 
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length == 0:
@@ -748,6 +885,16 @@ class BunckerHandler(BaseHTTPRequestHandler):
             uptime = int(time.time() - start_time)
 
         disk = shutil.disk_usage(store.path)
+
+        # Count stale manifests
+        manifest_ttl = getattr(self._server_ref, "manifest_ttl", 30)
+        stale_count = 0
+        if manifest_ttl > 0:
+            from buncker.registry_client import ManifestCache
+
+            cache = ManifestCache(store.path)
+            stale_count = cache.count_stale(manifest_ttl)
+
         status = {
             "version": __version__,
             "source_id": source_id,
@@ -758,6 +905,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
             "disk_used": disk.used,
             "disk_free": disk.free,
             "uptime": uptime,
+            "stale_manifests": stale_count,
         }
         self._send_json(200, status)
 

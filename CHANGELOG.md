@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-03-09
+
+### Added
+
+- Docker Compose analysis: `buncker analyze --compose <file>` parses `docker-compose.yml` to resolve all service images and Dockerfiles in one pass
+- Remote Compose analysis via `compose_content` / `compose_path` fields in `POST /admin/analyze`
+- RPM packaging for RHEL/Fedora: `.spec` files, `make build-rpm` target, CI build and install jobs
+- Logrotate configuration for `/var/log/buncker/*.log` (daily rotation, 30 days retention, compress + copytruncate)
+- `--restrict-oci` flag on `buncker serve`: requires Bearer token on `/v2/*` endpoints with `WWW-Authenticate` challenge per OCI Distribution Spec
+- `oci.restrict` config option (default: false) for persistent OCI auth restriction
+- Manifest cache TTL: `manifest_ttl` config option (default: 30 days) triggers warnings for stale manifests during analyze
+- `--refresh-stale` flag on `buncker generate-manifest` to include stale manifests for re-download by buncker-fetch
+- `stale_manifests` count in `GET /admin/status` response
+- `stale_manifests` list in analyze response for programmatic detection
+
+### Security
+
+- Tar extraction: validate member paths for `..` and absolute paths on Python < 3.12 (zip-slip protection)
+- TLS: enforce minimum TLS 1.2 and restrict cipher suites to ECDHE+AESGCM/CHACHA20
+- API tokens: warn in logs if `api-tokens.json` has insecure file permissions on load
+- Auth: reject empty Bearer token value early instead of relying on comparison fallthrough
+- Import: validate `X-Buncker-Checksum` header as strict `sha256:<64 hex chars>` format
+- Store: set blob and metadata files to mode 0600 (no world-readable defaults)
+- Store: reject symlinks at blob destination path before write
+- Crypto: bump PBKDF2 iterations for env key derivation from 100k to 600k (OWASP minimum)
+- TLS: use RSA-4096 for self-signed CA and server certificates (was 2048)
+- HTTP: add `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Cache-Control: no-store` on all responses
+
+### Changed
+
+- `packaging/buncker/debian/control` now depends on `python3-yaml` for Compose support
+- `.deb` install file updated with `auth.py` and `compose.py` modules
+
 ## [0.9.0] - 2026-03-09
 
 ### Added
@@ -250,7 +283,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Rwx-G/Buncker/compare/v0.9.0...v1.0.0
 [0.9.0]: https://github.com/Rwx-G/Buncker/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Rwx-G/Buncker/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Rwx-G/Buncker/compare/v0.7.0...v0.8.0

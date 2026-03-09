@@ -1,6 +1,6 @@
 # Buncker - Product Requirements Document (PRD)
 
-> Version: 2.0 | Date: 2026-03-06 | Author: Romain G.
+> Version: 3.0 | Date: 2026-03-09 | Author: Romain G.
 
 ---
 
@@ -55,6 +55,7 @@ Buncker is the only tool combining Dockerfile resolution + delta sync + encrypti
 | 2026-03-04 | 1.1 | Added persona, competitive analysis, success metrics, out-of-scope, license | Romain G. |
 | 2026-03-04 | 1.2 | Translated to English (public repo) | Romain G. |
 | 2026-03-06 | 2.0 | Added Epic 6: Admin API Authentication & LAN Client Operations | Romain G. |
+| 2026-03-09 | 3.0 | Added Epic 7: Compose, RPM, log rotation, OCI auth restriction, manifest TTL | Romain G. |
 
 ---
 
@@ -83,16 +84,24 @@ Buncker is the only tool combining Dockerfile resolution + delta sync + encrypti
 - Streaming import via PUT with resume support (`Content-Range`) and pre-decryption checksum (`X-Buncker-Checksum`)
 - Enriched audit trail with `client_ip`, `auth_level`, `user_agent` on all API requests
 
-### Out of Scope (V3+)
+### In Scope (V3 - Compose, Packaging, Hardening)
+
+- Docker Compose analysis: `buncker analyze --compose docker-compose.yml` extracts `image:` and `build.dockerfile` from all services
+- New dependency: `python3-yaml` (via apt) for YAML parsing
+- RPM packaging for RHEL/Fedora (`.spec` files, `make build-rpm`)
+- Log rotation via `logrotate.d/buncker` config shipped in .deb and .rpm
+- `--restrict-oci` server flag to require read-only token on `/v2/*` endpoints
+- Manifest cache TTL (default 30 days) with staleness warning in `buncker analyze` and `--refresh-stale` flag on `generate-manifest`
+
+### Out of Scope (V4+)
 
 - **Cosign / supply chain signatures** - optional `--verify-signature` flag on buncker-fetch
 - **Multi-registry offline sync** - shared store via NFS/CIFS (filesystem config), later active replication
-- **RPM / tarball packaging** - if community demand (Fedora, RHEL)
 - **pip / PyPI packaging** - Not planned (contradicts zero-pip philosophy)
 - **Web interface / dashboard** - Not planned. CLI + HTTP API suffice
 - **External monitoring** (Prometheus, Grafana) - Not planned. Audit trail logs cover traceability
 - **Helm charts / Kubernetes manifests support** - Docker images only
-- **Windows / macOS support** - Debian/Ubuntu only
+- **Windows / macOS native support** - buncker-fetch on Windows via WSL2 (documented), no native binary
 - **Daemon auto-update** - The .deb can be included in response.tar.enc but installation remains manual
 
 ---
@@ -127,10 +136,14 @@ Buncker is the only tool combining Dockerfile resolution + delta sync + encrypti
 - **FR24:** `buncker api-setup` activates TLS: accepts an operator-provided certificate (`--cert`, `--key`) or generates an auto-signed certificate with an explicit security warning. Reuses the existing `buncker export-ca` mechanism
 - **FR25:** All API log entries include `client_ip`, `auth_level` (`admin`, `readonly`, `local`, `rejected`), and `user_agent` fields
 - **FR26:** Failed authentication attempts (invalid or missing token) are logged with `auth_level: rejected` and do not reveal whether the token was close to valid
+- **FR27:** `buncker analyze --compose <path>` parses a Docker Compose YAML file, extracts `image:` references and `build.dockerfile` paths from all services, and runs the resolver pipeline on each
+- **FR28:** `--restrict-oci` server flag (config: `oci.restrict: true`) requires a valid read-only or admin Bearer token on `/v2/*` endpoints; Docker clients must configure registry auth via `hosts.toml`
+- **FR29:** Manifest cache tracks `cached_at` timestamp; `buncker analyze` emits a warning for manifests older than `manifest_ttl` (default 30 days, configurable in config.json)
+- **FR30:** `buncker generate-manifest --refresh-stale` includes stale manifests (TTL exceeded) in the transfer request so buncker-fetch re-downloads them
 
 ### Non Functional
 
-- **NFR1:** Python >=3.11 as baseline. Only external dependency: `python3-cryptography` installed via apt. No pip.
+- **NFR1:** Python >=3.11 as baseline. External dependencies: `python3-cryptography` and `python3-yaml` installed via apt. No pip.
 - **NFR2:** .deb packaging for both components (buncker and buncker-fetch), with Depends: python3 (>= 3.11), python3-cryptography
 - **NFR3:** The store uses the standard OCI Image Layout format. No database - everything is filesystem
 - **NFR4:** Store writes are atomic (temp + verify SHA256 + rename). A crash never corrupts the store
@@ -212,6 +225,9 @@ Build .deb packages, run e2e tests for the full cycle, document the project, pro
 
 ### Epic 6 - Admin API Authentication & LAN Client Operations
 Secure the admin API with Bearer token authentication and TLS, then enable LAN clients to perform registry operations (analyze, generate-manifest, import) remotely via curl. Optional setup via `buncker api-setup` - installations using local-only access remain unchanged.
+
+### Epic 7 - Compose, Packaging, Hardening & Release 1.0
+Docker Compose analysis, RPM packaging for enterprise Linux, log rotation, OCI auth restriction for high-security environments, manifest cache TTL for freshness control. Feature-complete release.
 
 ---
 
@@ -666,6 +682,92 @@ so that we can release with confidence.
 6. README updated: `buncker api-setup` in command reference, curl examples in quick start
 7. Admin API endpoint reference updated with auth requirements and new endpoints (PUT import)
 8. All tests run in CI without real network
+
+---
+
+### Epic 7 - Compose, Packaging, Hardening & Release 1.0
+
+**Goal:** Deliver Docker Compose support, RPM packaging, log rotation, OCI auth restriction, and manifest cache TTL. At the end of this epic, Buncker is feature-complete for v1.0.0: it handles both single Dockerfiles and Compose projects, ships on Debian and RHEL, and provides full security hardening and operational maturity.
+
+#### Story 7.1 - Docker Compose Analysis
+
+As an **operator**,
+I want to analyze a `docker-compose.yml` file to extract all image references,
+so that I can synchronize all images needed for a multi-service project in one operation.
+
+**Acceptance Criteria:**
+1. `buncker analyze --compose docker-compose.yml` parses the YAML file and extracts `image:` fields from all services
+2. Services with `build.dockerfile` have their Dockerfile resolved through the existing resolver pipeline
+3. Services with both `image:` and `build:` use the `image:` reference (same as Docker Compose behavior for pre-built images)
+4. Services with only `build.context` (no explicit `dockerfile`) default to `Dockerfile` in the build context directory
+5. The Compose file is validated: missing `services:` key or empty services returns an actionable error
+6. `POST /admin/analyze` accepts `compose_content` (string) for remote clients alongside existing `dockerfile_content`
+7. The analysis result aggregates all images with deduplication (same image used by multiple services counted once)
+8. `python3-yaml` dependency added to .deb control files
+9. Tests: multi-service Compose file, mixed image+build services, deduplication, invalid YAML, remote content mode
+
+#### Story 7.2 - RPM Packaging
+
+As a **RHEL/Fedora operator**,
+I want `.rpm` packages for buncker and buncker-fetch,
+so that I can install them on enterprise Linux with native package management.
+
+**Acceptance Criteria:**
+1. `packaging/buncker/rpm/buncker.spec` and `packaging/buncker-fetch/rpm/buncker-fetch.spec` define RPM specs
+2. `make build-rpm` produces `.rpm` files in `dist/` using `rpmbuild`
+3. RPM Requires: `python3 >= 3.11`, `python3-cryptography`, `python3-pyyaml`
+4. buncker.rpm installs same file layout as .deb: `/usr/bin/buncker`, `/usr/lib/buncker/`, `/etc/buncker/config.json`, `buncker.service`
+5. buncker-fetch.rpm installs: `/usr/bin/buncker-fetch`, `/usr/lib/buncker-fetch/`
+6. `%post` scriptlet creates buncker user and directories (mirrors .deb postinst)
+7. `logrotate.d/buncker` config included in buncker.rpm (shared with Story 7.3)
+8. CI: `build-rpm` job in GitHub Actions using Fedora container, RPM artifacts uploaded
+9. Tests: RPM metadata validation (Name, Version, Requires), file list verification
+
+#### Story 7.3 - Log Rotation
+
+As an **operator**,
+I want automatic log rotation for Buncker logs,
+so that disk space is managed without manual intervention.
+
+**Acceptance Criteria:**
+1. `packaging/buncker/debian/logrotate` provides a `logrotate.d/buncker` config file
+2. Config rotates `/var/log/buncker/*.log` daily, keeps 30 days, compresses old logs with gzip
+3. Rotation uses `copytruncate` (daemon keeps file handle open, no signal-based rotation needed)
+4. The logrotate config is installed to `/etc/logrotate.d/buncker` by both .deb and .rpm packages
+5. .deb `conffiles` updated to include the logrotate config (preserved on upgrade)
+6. Tests: verify logrotate config syntax is valid (`logrotate -d`), config file present in package
+
+#### Story 7.4 - OCI Auth Restriction
+
+As a **security-conscious operator**,
+I want to require authentication on OCI pull endpoints,
+so that only authorized Docker clients can pull images in high-security environments.
+
+**Acceptance Criteria:**
+1. `--restrict-oci` flag on `buncker serve` enables auth on `/v2/*` endpoints
+2. Config option `oci.restrict: true` persisted in `config.json` (default: `false`)
+3. When enabled, `/v2/*` endpoints require a valid read-only or admin Bearer token
+4. `GET /v2/` returns 401 with `WWW-Authenticate: Bearer realm="buncker"` when no valid token is present (standard OCI auth challenge)
+5. Docker clients authenticate via `hosts.toml` configuration with the read-only token
+6. When disabled (default), `/v2/*` behavior is unchanged (unauthenticated, backward compatible)
+7. README updated with `hosts.toml` configuration example for restricted mode
+8. Tests: pull with valid token succeeds, pull without token returns 401 with proper challenge, default mode unchanged
+
+#### Story 7.5 - Manifest Cache TTL & Staleness
+
+As an **operator**,
+I want to know when cached manifests are outdated,
+so that I can re-fetch them to stay in sync with upstream registries.
+
+**Acceptance Criteria:**
+1. `manifest_ttl` config option (integer, days, default 30) in `config.json`
+2. `buncker analyze` emits a warning for each manifest whose `_buncker.cached_at` is older than `manifest_ttl` days
+3. Warning format: `"Manifest for {image}:{tag} is {N} days old (TTL: {ttl}d) - consider using --refresh-stale"`
+4. `buncker generate-manifest --refresh-stale` includes stale manifest digests in the transfer request with a `refresh: true` flag
+5. `buncker-fetch` re-downloads manifests flagged with `refresh: true` even if already in local cache
+6. Updated manifests are included in `response.tar.enc` and imported back into the offline manifest cache
+7. `GET /admin/status` includes `stale_manifests` count in the response
+8. Tests: fresh manifest no warning, stale manifest triggers warning, --refresh-stale includes stale in request, buncker-fetch re-fetches flagged manifests
 
 ---
 
