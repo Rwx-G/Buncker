@@ -7,6 +7,7 @@ RUN apt-get update && \
         python3-cryptography \
         ca-certificates \
         curl \
+        procps \
         openssh-server \
         iproute2 \
     && rm -rf /var/lib/apt/lists/*
