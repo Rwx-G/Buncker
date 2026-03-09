@@ -210,6 +210,7 @@ _ADMIN_ENDPOINTS = {
     ("/admin/generate-manifest", "POST"),
     ("/admin/import", "POST"),
     ("/admin/import", "PUT"),
+    ("/admin/gc/impact", "POST"),
     ("/admin/gc/execute", "POST"),
 }
 

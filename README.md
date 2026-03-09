@@ -330,7 +330,7 @@ references as in Approach 1.
 | `buncker status` | Show registry status (blob count, store size) |
 | `buncker verify` | Re-hash all blobs and detect silent corruption (bit-rot) |
 | `buncker gc --report` | List inactive blobs eligible for garbage collection |
-| `buncker gc --execute` | Delete reported inactive blobs |
+| `buncker gc --execute` | Delete reported inactive blobs (requires `--yes` or interactive confirmation) |
 | `buncker rotate-keys` | Generate a new mnemonic and deprecate old keys |
 | `buncker export-ca` | Print CA certificate to stdout (TLS mode only) |
 | `buncker api-setup` | Generate API tokens and activate TLS for LAN access |

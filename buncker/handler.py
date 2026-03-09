@@ -185,6 +185,9 @@ class BunckerHandler(BaseHTTPRequestHandler):
         if path == "/admin/import":
             self._handle_admin_import()
             return
+        if path == "/admin/gc/impact":
+            self._handle_admin_gc_impact()
+            return
         if path == "/admin/gc/execute":
             self._handle_admin_gc_execute()
             return
@@ -842,6 +845,26 @@ class BunckerHandler(BaseHTTPRequestHandler):
         store = self._get_store()
         candidates = store.gc_report(inactive_days)
         self._send_json(200, {"candidates": candidates, "count": len(candidates)})
+
+    def _handle_admin_gc_impact(self):
+        """POST /admin/gc/impact - Analyze which images break if blobs are deleted."""
+        body = self._read_json_body()
+        if body is None:
+            return
+
+        digests = body.get("digests")
+        if not digests or not isinstance(digests, list):
+            self._send_admin_error(400, "MISSING_FIELD", "digests array required")
+            return
+
+        for d in digests:
+            if not _DIGEST_RE.match(d):
+                self._send_admin_error(400, "DIGEST_INVALID", f"invalid digest: {d}")
+                return
+
+        store = self._get_store()
+        impact = store.gc_impact_report(digests)
+        self._send_json(200, {"impact": impact, "affected_images": len(impact)})
 
     def _handle_admin_gc_execute(self):
         """POST /admin/gc/execute - Execute GC."""

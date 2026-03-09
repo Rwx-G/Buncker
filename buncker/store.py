@@ -208,6 +208,81 @@ class Store:
         self._last_gc_report = {c["digest"] for c in candidates}
         return candidates
 
+    def gc_impact_report(self, digests: list[str]) -> list[dict]:
+        """Analyze which images become non-pullable if given blobs are deleted.
+
+        Scans all cached manifests and checks if they reference any of the
+        given digests (in config or layers).
+
+        Args:
+            digests: List of ``sha256:<hex>`` digests planned for deletion.
+
+        Returns:
+            List of impact dicts, one per affected image, with image reference,
+            missing blobs, and missing size.
+        """
+        gc_set = set(digests)
+        impact: list[dict] = []
+        manifests_dir = self._path / "manifests"
+
+        if not manifests_dir.exists():
+            return impact
+
+        for manifest_path in manifests_dir.rglob("*.json"):
+            if not manifest_path.is_file():
+                continue
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+
+            # Extract all blob digests from this manifest
+            needed: list[str] = []
+            config = manifest.get("config", {})
+            if "digest" in config:
+                needed.append(config["digest"])
+            for layer in manifest.get("layers", []):
+                if "digest" in layer:
+                    needed.append(layer["digest"])
+
+            affected = [d for d in needed if d in gc_set]
+            if not affected:
+                continue
+
+            # Parse path: manifests/{registry}/{repo}/{tag}/{platform}.json
+            rel = manifest_path.relative_to(manifests_dir)
+            parts = rel.parts
+            if len(parts) >= 4:
+                registry = parts[0]
+                repository = "/".join(parts[1:-2])
+                tag = parts[-2]
+                platform = parts[-1].replace(".json", "").replace("-", "/")
+            else:
+                registry = ""
+                repository = str(rel)
+                tag = ""
+                platform = ""
+
+            # Calculate affected size from sidecars
+            missing_size = 0
+            for d in affected:
+                try:
+                    meta = self.get_metadata(d)
+                    missing_size += meta.get("size", 0)
+                except StoreError:
+                    pass
+
+            impact.append({
+                "image": f"{registry}/{repository}:{tag}" if tag else str(rel),
+                "platform": platform,
+                "missing_blobs": affected,
+                "missing_count": len(affected),
+                "total_blobs": len(needed),
+                "missing_size": missing_size,
+            })
+
+        return impact
+
     def gc_execute(
         self,
         digests: list[str],

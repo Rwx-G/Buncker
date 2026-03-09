@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `buncker verify` command to re-hash all blobs and detect silent corruption (bit-rot)
 - `/admin/health` endpoint returning store integrity, TLS cert expiry, disk space, and uptime
 - TLS support in BunckerServer via `ssl.SSLContext` (server now serves HTTPS when configured)
+- `gc --report` now shows which images become non-pullable if candidates are deleted (`gc_impact_report`)
+- `POST /admin/gc/impact` endpoint to analyze image impact before executing GC
+- `gc --execute` requires `--yes` flag or interactive confirmation to prevent accidental deletions
 
 ### Fixed
 

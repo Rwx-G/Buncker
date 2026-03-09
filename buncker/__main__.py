@@ -142,6 +142,11 @@ def main() -> None:
         nargs="*",
         help="Specific digests to GC",
     )
+    sub_gc.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompt for gc --execute",
+    )
 
     # verify
     subparsers.add_parser("verify", help="Verify store integrity (re-hash all blobs)")
@@ -875,6 +880,38 @@ def _cmd_proxy(args: argparse.Namespace) -> None:
         if args.execute:
             digests = args.digests or []
             operator = args.operator or "cli"
+
+            # Show impact report before executing
+            if digests:
+                impact = _admin_post(
+                    f"{base}/admin/gc/impact", {"digests": digests}
+                )
+                affected = impact.get("affected_images", 0)
+                if affected > 0:
+                    print(
+                        f"\n{_c('WARNING:', _YELLOW)} {affected} image(s) will "
+                        "become non-pullable:"
+                    )
+                    for img in impact.get("impact", []):
+                        print(
+                            f"  {img['image']} ({img['platform']}) "
+                            f"- {img['missing_count']}/{img['total_blobs']} blobs lost"
+                        )
+                    print()
+
+            # Require --yes or interactive confirmation
+            if not getattr(args, "yes", False):
+                count = len(digests) if digests else "all reported"
+                try:
+                    answer = input(
+                        f"Delete {count} blob(s)? [y/N] "
+                    ).strip().lower()
+                except EOFError:
+                    answer = ""
+                if answer != "y":
+                    print("Aborted.")
+                    sys.exit(0)
+
             data = {"digests": digests, "operator": operator}
             result = _admin_post(f"{base}/admin/gc/execute", data)
             print(json.dumps(result, indent=2))
