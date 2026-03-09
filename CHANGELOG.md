@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-03-09
+
 ### Added
 
 - `buncker verify` command to re-hash all blobs and detect silent corruption (bit-rot)
@@ -19,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rate limit observability: logs warning when `RateLimit-Remaining` drops below 10 on successful responses
 - Manifest auto-refresh: `buncker-fetch` tracks manifest digests across fetches and warns when upstream content changes
 - Dockerfile ARG substitution now supports `${VAR:-default}` and `${VAR:+replacement}` syntax
+- Security hardening documentation (mnemonic encryption, `/v2/*` risks, admin API protections)
 
 ### Fixed
 
@@ -241,7 +244,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Rwx-G/Buncker/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Rwx-G/Buncker/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Rwx-G/Buncker/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Rwx-G/Buncker/compare/v0.6.1...v0.7.0
