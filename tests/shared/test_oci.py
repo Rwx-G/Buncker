@@ -206,6 +206,29 @@ class TestSelectPlatform:
         with pytest.raises(ValueError, match="No manifest found"):
             select_platform(idx, OCIPlatform("s390x", "linux"))
 
+    def test_entry_without_platform_is_skipped(self) -> None:
+        """Index entry without 'platform' key should be skipped."""
+        idx = OCIIndex(
+            schema_version=2,
+            media_type="application/vnd.oci.image.index.v1+json",
+            manifests=[
+                OCIIndexEntry(
+                    media_type="application/vnd.oci.image.manifest.v1+json",
+                    digest="sha256:noplatform",
+                    size=100,
+                    platform=None,
+                ),
+                OCIIndexEntry(
+                    media_type="application/vnd.oci.image.manifest.v1+json",
+                    digest="sha256:amd64result",
+                    size=200,
+                    platform=OCIPlatform("amd64", "linux"),
+                ),
+            ],
+        )
+        digest = select_platform(idx, OCIPlatform("amd64", "linux"))
+        assert digest == "sha256:amd64result"
+
 
 # ---------------------------------------------------------------------------
 # verify_blob tests
@@ -319,3 +342,60 @@ class TestBuildImageLayout:
 
         with pytest.raises(FileNotFoundError, match="Blob not found"):
             build_image_layout(blobs_dir, [manifest], index, output_dir)
+
+    def test_blob_digest_mismatch_raises(self, tmp_path: Path) -> None:
+        """Blob with wrong content raises ValueError."""
+        blobs_dir = tmp_path / "src"
+        blobs_dir.mkdir()
+        output_dir = tmp_path / "layout"
+
+        # Create a blob file whose name doesn't match its content hash
+        fake_hex = "a" * 64
+        (blobs_dir / fake_hex).write_bytes(b"wrong content")
+
+        # Also create a valid manifest blob so build_image_layout reaches config
+        manifest_content = b'{"schemaVersion": 2}'
+        manifest_hex = hashlib.sha256(manifest_content).hexdigest()
+        (blobs_dir / manifest_hex).write_bytes(manifest_content)
+
+        manifest = OCIManifest(
+            schema_version=2,
+            media_type="application/vnd.oci.image.manifest.v1+json",
+            config=OCILayer(
+                "application/vnd.oci.image.config.v1+json",
+                f"sha256:{fake_hex}",
+                10,
+            ),
+            layers=[],
+            digest=f"sha256:{manifest_hex}",
+        )
+        index = OCIIndex(
+            schema_version=2,
+            media_type="application/vnd.oci.image.index.v1+json",
+        )
+
+        with pytest.raises(ValueError, match="digest mismatch"):
+            build_image_layout(blobs_dir, [manifest], index, output_dir)
+
+
+class TestBuildIndexJson:
+    def test_index_entry_with_variant(self) -> None:
+        """Platform with variant 'v8' serialises correctly."""
+        from shared.oci import _build_index_json
+
+        index = OCIIndex(
+            schema_version=2,
+            media_type="application/vnd.oci.image.index.v1+json",
+            manifests=[
+                OCIIndexEntry(
+                    media_type="application/vnd.oci.image.manifest.v1+json",
+                    digest="sha256:arm64",
+                    size=300,
+                    platform=OCIPlatform("arm64", "linux", "v8"),
+                )
+            ],
+        )
+        data = json.loads(_build_index_json(index))
+        platform = data["manifests"][0]["platform"]
+        assert platform["variant"] == "v8"
+        assert platform["architecture"] == "arm64"

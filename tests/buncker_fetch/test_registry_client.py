@@ -12,6 +12,7 @@ import pytest
 from buncker_fetch.registry_client import (
     RegistryClient,
     _log_rate_limit_headers,
+    _NoAuthRedirectHandler,
     _parse_retry_after,
     load_credentials,
 )
@@ -451,3 +452,183 @@ class TestLoadCredentials:
             }
         }
         assert load_credentials(config, "docker.io") is None
+
+
+class TestCrossHostRedirect:
+    """Test auth stripping on cross-host redirects (lines 39-46)."""
+
+    def test_redirect_strips_auth_on_different_host(self):
+        """Authorization header stripped when redirect goes to different host."""
+        handler = _NoAuthRedirectHandler()
+
+        import urllib.request
+
+        original_req = urllib.request.Request(
+            "https://registry.example.com/v2/lib/test/blobs/sha256:abc",
+            headers={"Authorization": "Bearer token123"},
+        )
+
+        new_req = handler.redirect_request(
+            original_req,
+            None,  # fp
+            302,
+            "Found",
+            {},
+            "https://cdn.example.com/blobs/sha256:abc",
+        )
+
+        assert new_req is not None
+        assert not new_req.has_header("Authorization")
+
+    def test_redirect_keeps_auth_on_same_host(self):
+        """Authorization header kept when redirect stays on same host."""
+        handler = _NoAuthRedirectHandler()
+
+        import urllib.request
+
+        original_req = urllib.request.Request(
+            "https://registry.example.com/v2/lib/test/blobs/sha256:abc",
+            headers={"Authorization": "Bearer token123"},
+        )
+
+        new_req = handler.redirect_request(
+            original_req,
+            None,
+            302,
+            "Found",
+            {},
+            "https://registry.example.com/other/path",
+        )
+
+        assert new_req is not None
+        assert new_req.has_header("Authorization")
+
+
+class TestInvalidManifestJson:
+    """Test invalid manifest JSON response (lines 108-109)."""
+
+    def test_non_json_manifest_raises_registry_error(self, mock_server, client):
+        _patch_https_to_http(client)
+        with (
+            patch.object(client, "_request", return_value=b"not json {{{"),
+            pytest.raises(RegistryError, match="Invalid manifest JSON"),
+        ):
+            client.fetch_manifest("library/test", "latest")
+
+
+class TestAuthDiscoveryErrors:
+    """Test auth discovery error paths (lines 146-163)."""
+
+    def test_non_401_raises_registry_error(self):
+        """GET /v2/ returns 403 -> RegistryError."""
+        import urllib.error
+        import urllib.request
+
+        client = RegistryClient("fake.registry:9999")
+
+        with (
+            patch(
+                "urllib.request.urlopen",
+                side_effect=urllib.error.HTTPError(
+                    "https://fake.registry:9999/v2/", 403, "Forbidden", {}, None
+                ),
+            ),
+            pytest.raises(RegistryError, match="Auth discovery failed"),
+        ):
+            client._get_token("repository:lib/test:pull")
+
+
+class TestTokenExchangeErrors:
+    """Test token exchange error handling (lines 189-195)."""
+
+    def test_url_error_raises_registry_error(self):
+        """URLError on token exchange raises RegistryError."""
+        import urllib.error
+
+        client = RegistryClient("fake.registry:9999")
+
+        with (
+            patch(
+                "urllib.request.urlopen",
+                side_effect=urllib.error.URLError("Connection refused"),
+            ),
+            pytest.raises(RegistryError, match="Token exchange connection failed"),
+        ):
+            client._exchange_token(
+                "https://auth.example.com/token",
+                "registry",
+                "repository:test:pull",
+            )
+
+    def test_http_error_raises_registry_error(self):
+        """HTTPError on token exchange raises RegistryError."""
+        import urllib.error
+
+        client = RegistryClient("fake.registry:9999")
+
+        with (
+            patch(
+                "urllib.request.urlopen",
+                side_effect=urllib.error.HTTPError(
+                    "https://auth.example.com/token",
+                    500,
+                    "Internal Server Error",
+                    {},
+                    None,
+                ),
+            ),
+            pytest.raises(RegistryError, match="Token exchange failed"),
+        ):
+            client._exchange_token(
+                "https://auth.example.com/token",
+                "registry",
+                "repository:test:pull",
+            )
+
+
+class TestRetryOn401:
+    """Test 401 retry with re-authentication (lines 237-239)."""
+
+    def test_401_triggers_reauthentication(self, mock_server, client):
+        """First call returns 401, re-auth, then success."""
+        _patch_https_to_http(client)
+
+        call_count = 0
+        original_open = client._opener.open
+
+        def auth_fail_then_succeed(req, timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                import urllib.error
+
+                raise urllib.error.HTTPError(
+                    req.full_url, 401, "Unauthorized", {}, None
+                )
+            return original_open(req, timeout=timeout)
+
+        with patch.object(client._opener, "open", side_effect=auth_fail_then_succeed):
+            manifest = client.fetch_manifest("library/test", "latest")
+
+        assert manifest["schemaVersion"] == 2
+        assert call_count == 2
+
+
+class TestURLErrorRetry:
+    """Test URLError retry exhaustion (lines 276-286)."""
+
+    def test_url_error_retries_then_raises(self, mock_server, client):
+        """3 URLError in a row raises RegistryError."""
+        _patch_https_to_http(client)
+        import urllib.error
+
+        with (
+            patch.object(
+                client._opener,
+                "open",
+                side_effect=urllib.error.URLError("Connection reset"),
+            ),
+            patch("buncker_fetch.registry_client.time.sleep"),
+            pytest.raises(RegistryError, match="Connection failed"),
+        ):
+            client.fetch_manifest("library/test", "latest")

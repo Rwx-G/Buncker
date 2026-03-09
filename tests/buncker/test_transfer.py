@@ -298,3 +298,172 @@ class TestImportResponse:
             )
 
         assert any("transfer_imported" in r.message for r in caplog.records)
+
+    def test_no_newline_in_decrypted_raises(self, crypto_keys, store, tmp_path):
+        """Decrypted data without newline separator raises TransferError."""
+        aes_key, hmac_key = crypto_keys
+        from shared.crypto import encrypt
+
+        # Encrypt data with no newline at all
+        encrypted = encrypt(b"no-newline-here", aes_key)
+        response_path = tmp_path / "bad.tar.enc"
+        response_path.write_bytes(encrypted)
+
+        with pytest.raises(TransferError, match="no HMAC signature"):
+            import_response(
+                response_path,
+                aes_key=aes_key,
+                hmac_key=hmac_key,
+                store=store,
+            )
+
+    def test_errors_json_invalid_logs_warning(
+        self, crypto_keys, store, tmp_path, caplog
+    ):
+        """Invalid JSON in ERRORS.json logs a warning but doesn't crash."""
+        aes_key, hmac_key = crypto_keys
+        import logging
+
+        blob = b"valid blob"
+        blob_hex = hashlib.sha256(blob).hexdigest()
+
+        # Build tar with invalid ERRORS.json
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            oci_layout = b'{"imageLayoutVersion":"1.0.0"}\n'
+            info = tarfile.TarInfo(name="oci-layout")
+            info.size = len(oci_layout)
+            tar.addfile(info, io.BytesIO(oci_layout))
+
+            blob_path = f"blobs/sha256/{blob_hex}"
+            info = tarfile.TarInfo(name=blob_path)
+            info.size = len(blob)
+            tar.addfile(info, io.BytesIO(blob))
+
+            errors_bytes = b"{invalid json"
+            info = tarfile.TarInfo(name="ERRORS.json")
+            info.size = len(errors_bytes)
+            tar.addfile(info, io.BytesIO(errors_bytes))
+
+        tar_bytes = buf.getvalue()
+        encrypted = _encrypt_response(tar_bytes, aes_key, hmac_key)
+        response_path = tmp_path / "resp.tar.enc"
+        response_path.write_bytes(encrypted)
+
+        with caplog.at_level(logging.WARNING, logger="buncker.transfer"):
+            result = import_response(
+                response_path,
+                aes_key=aes_key,
+                hmac_key=hmac_key,
+                store=store,
+            )
+
+        assert result["imported"] == 1
+        assert any("transfer_errors_json_invalid" in r.message for r in caplog.records)
+
+    def test_import_blob_exception_skipped(self, crypto_keys, tmp_path, caplog):
+        """Exception from store.import_blob is caught and skipped."""
+        aes_key, hmac_key = crypto_keys
+        import logging
+        from unittest import mock
+
+        blob = b"good blob"
+        blob_hex = hashlib.sha256(blob).hexdigest()
+        tar_bytes = _build_response_tar({blob_hex: blob})
+        encrypted = _encrypt_response(tar_bytes, aes_key, hmac_key)
+
+        response_path = tmp_path / "resp.tar.enc"
+        response_path.write_bytes(encrypted)
+
+        # Mock store that raises on import_blob
+        mock_store = mock.MagicMock()
+        mock_store.import_blob.side_effect = RuntimeError("disk full")
+
+        with caplog.at_level(logging.ERROR, logger="buncker.transfer"):
+            result = import_response(
+                response_path,
+                aes_key=aes_key,
+                hmac_key=hmac_key,
+                store=mock_store,
+            )
+
+        assert result["imported"] == 0
+        assert result["skipped"] == 1
+        assert any("transfer_blob_import_failed" in r.message for r in caplog.records)
+
+    def test_manifest_cache_from_response(self, crypto_keys, store, tmp_path):
+        """Manifests in response are cached when manifest_cache is provided."""
+        aes_key, hmac_key = crypto_keys
+        from unittest import mock
+
+        # Build tar with a manifest file
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            oci_layout = b'{"imageLayoutVersion":"1.0.0"}\n'
+            info = tarfile.TarInfo(name="oci-layout")
+            info.size = len(oci_layout)
+            tar.addfile(info, io.BytesIO(oci_layout))
+
+            manifest_data = json.dumps({"schemaVersion": 2}).encode()
+            manifest_path = "manifests/docker.io/library/nginx/1.25/linux-amd64.json"
+            info = tarfile.TarInfo(name=manifest_path)
+            info.size = len(manifest_data)
+            tar.addfile(info, io.BytesIO(manifest_data))
+
+        tar_bytes = buf.getvalue()
+        encrypted = _encrypt_response(tar_bytes, aes_key, hmac_key)
+        response_path = tmp_path / "resp.tar.enc"
+        response_path.write_bytes(encrypted)
+
+        mock_cache = mock.MagicMock()
+
+        import_response(
+            response_path,
+            aes_key=aes_key,
+            hmac_key=hmac_key,
+            store=store,
+            manifest_cache=mock_cache,
+        )
+
+        mock_cache.cache_manifest.assert_called_once_with(
+            "docker.io", "library/nginx", "1.25", "linux/amd64", {"schemaVersion": 2}
+        )
+
+    def test_manifest_cache_malformed_path(self, crypto_keys, store, tmp_path, caplog):
+        """Manifest with too few path parts logs a warning."""
+        aes_key, hmac_key = crypto_keys
+        import logging
+        from unittest import mock
+
+        # Build tar with a manifest with too few path parts (only 2)
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            oci_layout = b'{"imageLayoutVersion":"1.0.0"}\n'
+            info = tarfile.TarInfo(name="oci-layout")
+            info.size = len(oci_layout)
+            tar.addfile(info, io.BytesIO(oci_layout))
+
+            manifest_data = json.dumps({"schemaVersion": 2}).encode()
+            # Only 2 parts: "short/file.json" - needs >= 4
+            info = tarfile.TarInfo(name="manifests/short/file.json")
+            info.size = len(manifest_data)
+            tar.addfile(info, io.BytesIO(manifest_data))
+
+        tar_bytes = buf.getvalue()
+        encrypted = _encrypt_response(tar_bytes, aes_key, hmac_key)
+        response_path = tmp_path / "resp.tar.enc"
+        response_path.write_bytes(encrypted)
+
+        mock_cache = mock.MagicMock()
+
+        with caplog.at_level(logging.DEBUG, logger="buncker.transfer"):
+            import_response(
+                response_path,
+                aes_key=aes_key,
+                hmac_key=hmac_key,
+                store=store,
+                manifest_cache=mock_cache,
+            )
+
+        # cache_manifest should not have been called (path too short)
+        mock_cache.cache_manifest.assert_not_called()

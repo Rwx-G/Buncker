@@ -68,6 +68,15 @@ class TestSplitMnemonic:
         with pytest.raises(CryptoError, match="Expected 16-word"):
             split_mnemonic("one two three")
 
+    def test_invalid_word_in_salt_raises(self) -> None:
+        """Unknown word in the last 4 positions raises CryptoError."""
+        # Build 16 words: 12 valid + 4 with one invalid
+        valid_12 = " ".join(WORDLIST[i] for i in range(12))
+        valid_salt = " ".join(WORDLIST[i] for i in range(12, 15))
+        bad_mnemonic = f"{valid_12} {valid_salt} xyznotaword"
+        with pytest.raises(CryptoError, match="Unknown word"):
+            split_mnemonic(bad_mnemonic)
+
     def test_keys_derived_from_split_match(self) -> None:
         """Both sides derive same keys from the same 16-word mnemonic."""
         full = generate_mnemonic()

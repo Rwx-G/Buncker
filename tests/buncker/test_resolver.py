@@ -594,3 +594,43 @@ class TestResolveDockerfile:
 
         # CONFIG_D=100 + LAYER_A=1000 + LAYER_B=2000
         assert result.total_missing_size == 3100
+
+    def test_find_layer_info_not_found(self):
+        """_find_layer_info returns {} for unknown digest."""
+        from buncker.resolver import _find_layer_info
+
+        manifest = {
+            "config": {"digest": "sha256:config", "size": 100},
+            "layers": [{"digest": "sha256:layer1", "size": 200}],
+        }
+        assert _find_layer_info(manifest, "sha256:unknown") == {}
+
+    def test_build_resolved_no_tag_no_digest(self):
+        """_build_resolved with no tag and no digest returns base only."""
+        from buncker.resolver import _build_resolved
+
+        result = _build_resolved("docker.io", "library/x", None, None)
+        assert result == "docker.io/library/x"
+
+    def test_deduplication_skips_already_seen(self, tmp_path):
+        """Two identical FROM lines don't produce duplicate missing blobs."""
+        df = tmp_path / "Dockerfile"
+        df.write_text("FROM nginx:1.25\nFROM nginx:1.25\n")
+
+        cache = FakeCache(
+            {
+                "docker.io/library/nginx:1.25:linux/amd64": MANIFEST_NGINX,
+            }
+        )
+        store = FakeStore()
+
+        result = resolve_dockerfile(
+            df,
+            store=store,
+            registry_client=cache,
+        )
+
+        # Blobs counted only once despite 2 FROM lines
+        all_digests = [b["digest"] for b in result.missing_blobs]
+        assert all_digests.count(LAYER_A) == 1
+        assert all_digests.count(LAYER_B) == 1

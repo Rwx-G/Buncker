@@ -544,3 +544,355 @@ class TestPutImport:
             assert body["code"] != "NOT_FOUND"
         finally:
             srv.stop()
+
+
+class TestBlobHead:
+    """Tests for HEAD /v2/{name}/blobs/{digest}."""
+
+    def _make_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(bind="127.0.0.1", port=0, store=store, source_id="test")
+        srv.start()
+        return srv
+
+    def test_blob_head_invalid_digest(self, tmp_path):
+        """HEAD with invalid digest does not match blob route, returns 404."""
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/library/test/blobs/baddigest"
+            req = urllib.request.Request(url, method="HEAD")
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            # _BLOB_ROUTE requires sha256:<64hex>, so "baddigest" never matches
+            assert exc_info.value.code == 404
+        finally:
+            srv.stop()
+
+    def test_blob_head_missing_blob(self, tmp_path):
+        """HEAD with valid but missing digest returns 404."""
+        srv = self._make_server(tmp_path)
+        try:
+            digest = "sha256:" + "a" * 64
+            url = f"http://127.0.0.1:{srv.port}/v2/library/test/blobs/{digest}"
+            req = urllib.request.Request(url, method="HEAD")
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 404
+        finally:
+            srv.stop()
+
+    def test_blob_head_existing(self, tmp_path):
+        """HEAD with existing blob returns 200."""
+        srv = self._make_server(tmp_path)
+        blob_data = b"head test blob"
+        digest = f"sha256:{hashlib.sha256(blob_data).hexdigest()}"
+        srv.store.import_blob(blob_data, digest)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/library/test/blobs/{digest}"
+            req = urllib.request.Request(url, method="HEAD")
+            resp = urllib.request.urlopen(req)
+            assert resp.status == 200
+            assert resp.headers["Docker-Content-Digest"] == digest
+        finally:
+            srv.stop()
+
+
+class TestBlobGet:
+    """Tests for GET /v2/{name}/blobs/{digest}."""
+
+    def _make_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(bind="127.0.0.1", port=0, store=store, source_id="test")
+        srv.start()
+        return srv
+
+    def test_blob_get_invalid_digest(self, tmp_path):
+        """GET with invalid digest does not match blob route, returns 404."""
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/library/test/blobs/baddigest"
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(url)
+            # _BLOB_ROUTE requires sha256:<64hex>, so "baddigest" never matches
+            assert exc_info.value.code == 404
+        finally:
+            srv.stop()
+
+    def test_blob_get_missing(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            digest = "sha256:" + "b" * 64
+            url = f"http://127.0.0.1:{srv.port}/v2/library/test/blobs/{digest}"
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(url)
+            assert exc_info.value.code == 404
+        finally:
+            srv.stop()
+
+    def test_blob_get_existing(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        blob_data = b"get test blob data"
+        digest = f"sha256:{hashlib.sha256(blob_data).hexdigest()}"
+        srv.store.import_blob(blob_data, digest)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/library/test/blobs/{digest}"
+            resp = urllib.request.urlopen(url)
+            assert resp.status == 200
+            assert resp.read() == blob_data
+        finally:
+            srv.stop()
+
+
+class TestLogsEndpoint:
+    """Tests for GET /admin/logs."""
+
+    def _make_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        log_path = tmp_path / "test.log"
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+            log_path=log_path,
+        )
+        srv.start()
+        return srv, log_path
+
+    def test_logs_invalid_limit(self, tmp_path):
+        srv, _ = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/logs?limit=abc"
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(url)
+            assert exc_info.value.code == 400
+        finally:
+            srv.stop()
+
+    def test_logs_invalid_since(self, tmp_path):
+        srv, _ = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/logs?since=bad"
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(url)
+            assert exc_info.value.code == 400
+        finally:
+            srv.stop()
+
+    def test_logs_empty(self, tmp_path):
+        srv, _ = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/logs"
+            resp = urllib.request.urlopen(url)
+            data = json.loads(resp.read())
+            assert data == []
+        finally:
+            srv.stop()
+
+    def test_logs_with_entries(self, tmp_path):
+        srv, log_path = self._make_server(tmp_path)
+        # Write some log entries
+        log_path.write_text(
+            '{"event": "test", "ts": "2026-03-09T12:00:00"}\n'
+            '{"event": "other", "ts": "2026-03-09T13:00:00"}\n'
+        )
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/logs"
+            resp = urllib.request.urlopen(url)
+            data = json.loads(resp.read())
+            assert len(data) == 2
+        finally:
+            srv.stop()
+
+    def test_logs_event_filter(self, tmp_path):
+        srv, log_path = self._make_server(tmp_path)
+        log_path.write_text(
+            '{"event": "test", "ts": "2026-03-09T12:00:00"}\n'
+            '{"event": "other", "ts": "2026-03-09T13:00:00"}\n'
+        )
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/logs?event=test"
+            resp = urllib.request.urlopen(url)
+            data = json.loads(resp.read())
+            assert len(data) == 1
+            assert data[0]["event"] == "test"
+        finally:
+            srv.stop()
+
+
+class TestBodyValidation:
+    """Tests for JSON body validation."""
+
+    def _make_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(bind="127.0.0.1", port=0, store=store, source_id="test")
+        srv.start()
+        return srv
+
+    def test_oversized_json_body(self, tmp_path):
+        """Content-Length > 10 MiB returns 400."""
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/analyze"
+            # Send a request claiming to be > 10MiB
+            data = b'{"big": true}'
+            req = urllib.request.Request(
+                url,
+                data=data,
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Length": str(11 * 1024 * 1024),
+                },
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 400
+        finally:
+            srv.stop()
+
+    def test_invalid_json_body(self, tmp_path):
+        """Invalid JSON body returns 400."""
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/analyze"
+            data = b"{bad json"
+            req = urllib.request.Request(
+                url,
+                data=data,
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Length": str(len(data)),
+                },
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 400
+        finally:
+            srv.stop()
+
+    def test_empty_json_body(self, tmp_path):
+        """Empty body returns 400."""
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/analyze"
+            req = urllib.request.Request(
+                url,
+                data=b"",
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Length": "0",
+                },
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 400
+        finally:
+            srv.stop()
+
+
+class TestNotFoundRoutes:
+    """Tests for 404 on unknown routes."""
+
+    def _make_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(bind="127.0.0.1", port=0, store=store, source_id="test")
+        srv.start()
+        return srv
+
+    def test_unknown_get_returns_404(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/unknown/path"
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(url)
+            assert exc_info.value.code == 404
+        finally:
+            srv.stop()
+
+    def test_unknown_head_returns_404(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/unknown/path"
+            req = urllib.request.Request(url, method="HEAD")
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 404
+        finally:
+            srv.stop()
+
+    def test_unknown_post_returns_404(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/nonexistent"
+            req = urllib.request.Request(
+                url,
+                data=b"{}",
+                headers={"Content-Type": "application/json"},
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 404
+        finally:
+            srv.stop()
+
+    def test_unknown_put_returns_404(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/nonexistent"
+            req = urllib.request.Request(url, data=b"data", method="PUT")
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 404
+        finally:
+            srv.stop()
+
+
+class TestManifestRoute:
+    """Tests for manifest HEAD and GET routes."""
+
+    def _make_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(bind="127.0.0.1", port=0, store=store, source_id="test")
+        srv.start()
+        return srv
+
+    def test_manifest_get_not_found(self, tmp_path):
+        """GET manifest for uncached image returns 404."""
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/library/nginx/manifests/latest"
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(url)
+            assert exc_info.value.code == 404
+        finally:
+            srv.stop()
+
+    def test_manifest_head_not_found(self, tmp_path):
+        """HEAD manifest for uncached image returns 404."""
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/library/nginx/manifests/latest"
+            req = urllib.request.Request(url, method="HEAD")
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 404
+        finally:
+            srv.stop()

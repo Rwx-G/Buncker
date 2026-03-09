@@ -381,6 +381,13 @@ class TestAuthenticateRequest:
             authenticate_request(handler, tokens, api_enabled=True)
         assert exc_info.value.status == 401
 
+    def test_non_admin_endpoint_returns_local(self):
+        """Non-admin, non-OCI endpoint with auth enabled returns 'local'."""
+        handler = self._make_handler("/some/unknown/path", "GET")
+        tokens = {"readonly": "ro_token", "admin": "admin_token"}
+        level = authenticate_request(handler, tokens, api_enabled=True)
+        assert level == "local"
+
 
 class TestAuthIntegration:
     """Integration tests for auth middleware with live server."""

@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/platform-Debian%2FUbuntu-A81D33.svg?logo=debian&logoColor=white" alt="Platform">
   <img src="https://img.shields.io/badge/packaging-.deb-orange.svg" alt="Packaging">
   <img src="https://img.shields.io/badge/status-v0.9.0-brightgreen.svg" alt="Status">
-  <img src="https://img.shields.io/badge/coverage-%E2%89%A580%25-brightgreen.svg" alt="Coverage">
+  <img src="https://img.shields.io/badge/coverage-%E2%89%A590%25-brightgreen.svg" alt="Coverage">
 </p>
 
 ---
@@ -516,9 +516,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| Import cleanup flag | `--cleanup` flag on `buncker import` to delete .tar.enc after successful import | Done |
-| Streamlined `api-setup` | Auto-export ca.pem to `/etc/buncker/ca.pem` and display cert fingerprint during setup | Done |
-| Disk space in `status` | Show store disk usage and available space in `buncker status` and `/admin/status` | Done |
 | API auth & LAN clients | Bearer tokens (admin + readonly), TLS, endpoint access control, audit trail | Done |
 | Remote operations | curl-based analyze, generate-manifest download, PUT streaming import with resume | Done |
 | Health-check endpoint | `/admin/health` returning store integrity, cert expiry, and disk space | Done |

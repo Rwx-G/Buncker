@@ -182,6 +182,88 @@ class TestBuildResponse:
             assert errors_data[0]["digest"] == "sha256:failed"
 
 
+class TestBuildResponseManifests:
+    def test_manifests_included_in_tar(self, tmp_path, keys, cache):
+        """Manifests are included in the response tar."""
+        aes_key, hmac_key = keys
+
+        manifests = [
+            {
+                "registry": "docker.io",
+                "repository": "library/nginx",
+                "tag": "1.25",
+                "platform": "linux-amd64",
+                "manifest": {"schemaVersion": 2, "layers": []},
+            }
+        ]
+
+        response_path = build_response(
+            cache,
+            [],
+            [],
+            aes_key=aes_key,
+            hmac_key=hmac_key,
+            source_id="test",
+            output_dir=tmp_path,
+            manifests=manifests,
+        )
+
+        encrypted = response_path.read_bytes()
+        decrypted = decrypt(encrypted, aes_key)
+        last_newline = decrypted.rfind(b"\n")
+        tar_bytes = decrypted[:last_newline]
+
+        with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:*") as tar:
+            members = tar.getnames()
+            assert any("manifests/" in m for m in members)
+            manifest_file = [m for m in members if "manifests/" in m][0]
+            data = json.loads(tar.extractfile(manifest_file).read())
+            assert data["schemaVersion"] == 2
+
+    def test_deb_file_included(self, tmp_path, keys, cache):
+        """Deb file is included in the response tar."""
+        aes_key, hmac_key = keys
+
+        deb_path = tmp_path / "buncker-fetch.deb"
+        deb_path.write_bytes(b"fake deb content")
+
+        response_path = build_response(
+            cache,
+            [],
+            [],
+            aes_key=aes_key,
+            hmac_key=hmac_key,
+            source_id="test",
+            output_dir=tmp_path / "output",
+            deb_path=deb_path,
+        )
+
+        encrypted = response_path.read_bytes()
+        decrypted = decrypt(encrypted, aes_key)
+        last_newline = decrypted.rfind(b"\n")
+        tar_bytes = decrypted[:last_newline]
+
+        with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:*") as tar:
+            members = tar.getnames()
+            assert "buncker-fetch.deb" in members
+            deb_data = tar.extractfile("buncker-fetch.deb").read()
+            assert deb_data == b"fake deb content"
+
+
+class TestProcessRequestErrors:
+    def test_no_newline_raises(self, tmp_path, keys):
+        """Request data without newline raises CryptoError."""
+        aes_key, hmac_key = keys
+        from shared.crypto import encrypt as crypto_encrypt
+
+        encrypted = crypto_encrypt(b"no-newline-data", aes_key)
+        request_path = tmp_path / "bad.json.enc"
+        request_path.write_bytes(encrypted)
+
+        with pytest.raises(CryptoError, match="no HMAC"):
+            process_request(request_path, aes_key=aes_key, hmac_key=hmac_key)
+
+
 class TestRoundTrip:
     def test_full_round_trip(self, tmp_path, keys, cache):
         """Test: offline generates request -> online processes -> builds response."""
