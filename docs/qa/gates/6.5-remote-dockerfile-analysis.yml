@@ -1,0 +1,15 @@
+schema: 1
+story: '6.5'
+story_title: 'Remote Dockerfile Analysis'
+gate: PASS
+status_reason: 'All ACs met. Added test_analyze_path_rejected_message validating _is_localhost() returns False for non-local IPs. Full integration test not possible since test server binds to 127.0.0.1.'
+reviewer: 'Romain G.'
+updated: '2026-03-09T12:00:00Z'
+top_issues:
+  - id: 'fixed-1'
+    severity: minor
+    description: 'FIXED: test_analyze_path_rejected_message validates _is_localhost() returns False for remote IP 192.168.1.42.'
+  - id: 'note-1'
+    severity: minor
+    description: '_is_localhost() checks for string "localhost" in client_address which is a no-op in typical HTTP scenarios. Not a bug but dead code.'
+waiver: { active: false }

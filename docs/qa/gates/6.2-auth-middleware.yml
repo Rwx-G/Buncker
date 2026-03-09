@@ -1,0 +1,9 @@
+schema: 1
+story: '6.2'
+story_title: 'Auth Middleware'
+gate: PASS
+status_reason: 'All ACs met. Auth middleware enforces Bearer tokens on /admin/* with constant-time comparison, /v2/* remains unauthenticated. Endpoint access matrix correctly implemented. 48 tests pass with 99% coverage on auth.py.'
+reviewer: 'Romain G.'
+updated: '2026-03-09T10:00:00Z'
+top_issues: []
+waiver: { active: false }

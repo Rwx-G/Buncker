@@ -1,0 +1,12 @@
+schema: 1
+story: '6.4'
+story_title: 'Token Management Commands'
+gate: PASS
+status_reason: 'All ACs met. Added test_api_reset_logs_audit_event verifying api_token_reset log event with correct token_type field via caplog.'
+reviewer: 'Romain G.'
+updated: '2026-03-09T12:00:00Z'
+top_issues:
+  - id: 'fixed-1'
+    severity: minor
+    description: 'FIXED: test_api_reset_logs_audit_event validates api_token_reset log event with token_type=admin.'
+waiver: { active: false }

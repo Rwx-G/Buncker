@@ -1,0 +1,18 @@
+schema: 1
+story: '6.1'
+story_title: 'Token Generation & Storage'
+gate: PASS
+status_reason: 'All ACs met after fixes. TLS implemented via ssl.SSLContext in server.py with tls_cert/tls_key params. CA cert now includes KeyUsage and SubjectKeyIdentifier extensions for Python 3.14 compatibility. Serve output shows http/https scheme.'
+reviewer: 'Romain G.'
+updated: '2026-03-09T12:00:00Z'
+top_issues:
+  - id: 'fixed-1'
+    severity: critical
+    description: 'FIXED: BunckerServer now wraps socket with ssl.SSLContext when tls_cert/tls_key provided. __main__.py passes cert paths from config.'
+  - id: 'fixed-2'
+    severity: major
+    description: 'FIXED: TestTlsServer.test_server_starts_with_tls verifies HTTPS handshake with auto-signed CA.'
+  - id: 'fixed-3'
+    severity: minor
+    description: 'FIXED: Serve output now shows https:// or http:// scheme.'
+waiver: { active: false }

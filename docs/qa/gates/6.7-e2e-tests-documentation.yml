@@ -1,0 +1,15 @@
+schema: 1
+story: '6.7'
+story_title: 'E2E Tests & Documentation'
+gate: PASS
+status_reason: 'All ACs met. README roadmap updated with Epic 6 features (API auth & LAN clients, Remote operations) marked as Done.'
+reviewer: 'Romain G.'
+updated: '2026-03-09T12:00:00Z'
+top_issues:
+  - id: 'fixed-1'
+    severity: critical
+    description: 'FIXED: README roadmap now includes "API auth & LAN clients" and "Remote operations" entries marked as Done.'
+  - id: 'note-1'
+    severity: minor
+    description: 'CHANGELOG Epic 6 content split across 0.8.0 and 0.8.1. Accurate and reflects actual release history.'
+waiver: { active: false }
