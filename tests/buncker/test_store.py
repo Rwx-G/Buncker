@@ -357,3 +357,75 @@ class TestGcExecute:
         messages = [r.message for r in caplog.records]
         assert "gc_candidate" in messages
         assert "gc_executed" in messages
+
+
+class TestStoreVerify:
+    """Tests for Store.verify() - integrity check (bit-rot detection)."""
+
+    def test_verify_empty_store(self, tmp_path):
+        store = Store(tmp_path)
+        result = store.verify()
+        assert result["total"] == 0
+        assert result["ok"] == 0
+        assert result["corrupted"] == 0
+        assert result["corrupted_digests"] == []
+
+    def test_verify_healthy_blobs(self, tmp_path):
+        store = Store(tmp_path)
+        store.import_blob(b"hello", _digest(b"hello"))
+        store.import_blob(b"world", _digest(b"world"))
+
+        result = store.verify()
+        assert result["total"] == 2
+        assert result["ok"] == 2
+        assert result["corrupted"] == 0
+
+    def test_verify_detects_corrupted_blob(self, tmp_path):
+        store = Store(tmp_path)
+        data = b"original content"
+        digest = _digest(data)
+        store.import_blob(data, digest)
+
+        # Corrupt the blob file
+        digest_hex = digest.removeprefix("sha256:")
+        blob_path = tmp_path / "blobs" / "sha256" / digest_hex
+        blob_path.write_bytes(b"corrupted content")
+
+        result = store.verify()
+        assert result["total"] == 1
+        assert result["ok"] == 0
+        assert result["corrupted"] == 1
+        assert digest in result["corrupted_digests"]
+
+    def test_verify_mixed_healthy_and_corrupted(self, tmp_path):
+        store = Store(tmp_path)
+        good_data = b"good blob"
+        bad_data = b"bad blob"
+        store.import_blob(good_data, _digest(good_data))
+        bad_digest = _digest(bad_data)
+        store.import_blob(bad_data, bad_digest)
+
+        # Corrupt only one blob
+        bad_hex = bad_digest.removeprefix("sha256:")
+        (tmp_path / "blobs" / "sha256" / bad_hex).write_bytes(b"tampered")
+
+        result = store.verify()
+        assert result["total"] == 2
+        assert result["ok"] == 1
+        assert result["corrupted"] == 1
+        assert bad_digest in result["corrupted_digests"]
+
+    def test_verify_logs_corrupted_blob(self, tmp_path, caplog):
+        store = Store(tmp_path)
+        data = b"test"
+        digest = _digest(data)
+        store.import_blob(data, digest)
+
+        digest_hex = digest.removeprefix("sha256:")
+        (tmp_path / "blobs" / "sha256" / digest_hex).write_bytes(b"bad")
+
+        with caplog.at_level("ERROR", logger="buncker.store"):
+            store.verify()
+
+        messages = [r.message for r in caplog.records]
+        assert "blob_corrupted" in messages

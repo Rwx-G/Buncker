@@ -200,6 +200,7 @@ def ipaddress_from_string(addr: str):
 # Endpoint access matrix: path -> (method, required_level)
 _READONLY_ENDPOINTS = {
     ("/admin/status", "GET"),
+    ("/admin/health", "GET"),
     ("/admin/logs", "GET"),
     ("/admin/gc/report", "GET"),
 }

@@ -328,6 +328,7 @@ references as in Approach 1.
 | `buncker generate-manifest` | Generate an encrypted transfer request |
 | `buncker import [file.tar.enc]` | Import an encrypted transfer response (auto-scans `transfer_path` if omitted, `--cleanup` deletes file after success) |
 | `buncker status` | Show registry status (blob count, store size) |
+| `buncker verify` | Re-hash all blobs and detect silent corruption (bit-rot) |
 | `buncker gc --report` | List inactive blobs eligible for garbage collection |
 | `buncker gc --execute` | Delete reported inactive blobs |
 | `buncker rotate-keys` | Generate a new mnemonic and deprecate old keys |

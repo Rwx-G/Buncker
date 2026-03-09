@@ -269,6 +269,49 @@ class Store:
         return {"count": count, "bytes_freed": bytes_freed}
 
     # ------------------------------------------------------------------
+    # Store integrity verification
+    # ------------------------------------------------------------------
+
+    def verify(self) -> dict:
+        """Re-hash every blob and detect silent corruption (bit-rot).
+
+        Returns:
+            Dict with ``total``, ``ok``, ``corrupted`` counts and a
+            ``corrupted_digests`` list of affected ``sha256:<hex>`` strings.
+        """
+        total = 0
+        ok = 0
+        corrupted: list[str] = []
+
+        for blob_path in self._blobs.iterdir():
+            if blob_path.is_file() and not blob_path.name.startswith("."):
+                total += 1
+                expected_hex = blob_path.name
+                h = hashlib.sha256()
+                with open(blob_path, "rb") as f:
+                    while chunk := f.read(65536):
+                        h.update(chunk)
+                actual_hex = h.hexdigest()
+                if actual_hex == expected_hex:
+                    ok += 1
+                else:
+                    corrupted.append(f"sha256:{expected_hex}")
+                    _log.error(
+                        "blob_corrupted",
+                        extra={
+                            "digest": f"sha256:{expected_hex}",
+                            "actual": actual_hex,
+                        },
+                    )
+
+        return {
+            "total": total,
+            "ok": ok,
+            "corrupted": len(corrupted),
+            "corrupted_digests": corrupted,
+        }
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 

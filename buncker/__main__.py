@@ -143,6 +143,9 @@ def main() -> None:
         help="Specific digests to GC",
     )
 
+    # verify
+    subparsers.add_parser("verify", help="Verify store integrity (re-hash all blobs)")
+
     # rotate-keys
     sub_rotate = subparsers.add_parser("rotate-keys", help="Rotate crypto keys")
     sub_rotate.add_argument(
@@ -198,6 +201,8 @@ def main() -> None:
         _cmd_rotate_keys(args)
     elif args.command == "export-ca":
         _cmd_export_ca(args)
+    elif args.command == "verify":
+        _cmd_verify(args)
     elif args.command == "api-setup":
         _cmd_api_setup(args)
     elif args.command == "api-show":
@@ -321,6 +326,32 @@ def _cmd_setup(args: argparse.Namespace) -> None:
     print(f"  Daemon:  {daemon_status}")
     print()
     print(_c(sep, _DIM))
+
+
+def _cmd_verify(args: argparse.Namespace) -> None:
+    """Verify store integrity by re-hashing all blobs."""
+    config = load_config(args.config)
+    from buncker.store import Store
+
+    store = Store(Path(config["store_path"]))
+    print(f"Verifying store at {config['store_path']}...")
+
+    result = store.verify()
+
+    print(f"  Total blobs:    {result['total']}")
+    print(f"  OK:             {_c(str(result['ok']), _GREEN)}")
+
+    if result["corrupted"] > 0:
+        print(f"  Corrupted:      {_c(str(result['corrupted']), _RED)}")
+        print()
+        print(f"  {_c('CORRUPTED BLOBS:', _RED)}")
+        for digest in result["corrupted_digests"]:
+            print(f"    {digest}")
+        sys.exit(1)
+    else:
+        print(f"  Corrupted:      {_c('0', _GREEN)}")
+        print()
+        print(_c("Store integrity OK.", _GREEN))
 
 
 def _cmd_api_setup(args: argparse.Namespace) -> None:

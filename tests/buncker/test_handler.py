@@ -61,6 +61,113 @@ class TestInputValidation:
         assert not _TAG_RE.match("a" * 129)
 
 
+class TestHealthEndpoint:
+    """Tests for GET /admin/health (health-check endpoint)."""
+
+    def _make_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(bind="127.0.0.1", port=0, store=store, source_id="test")
+        srv.start()
+        return srv
+
+    def test_health_returns_200_when_healthy(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/health"
+            resp = urllib.request.urlopen(url)
+            assert resp.status == 200
+            data = json.loads(resp.read())
+            assert data["healthy"] is True
+            assert data["store"]["oci_layout_valid"] is True
+            assert "disk" in data
+            assert data["disk"]["free"] > 0
+            assert "uptime" in data
+        finally:
+            srv.stop()
+
+    def test_health_includes_blob_count(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        # Import a blob
+        store = srv.store
+        blob_data = b"test blob"
+        digest = f"sha256:{hashlib.sha256(blob_data).hexdigest()}"
+        store.import_blob(blob_data, digest)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/health"
+            resp = urllib.request.urlopen(url)
+            data = json.loads(resp.read())
+            assert data["store"]["blob_count"] == 1
+        finally:
+            srv.stop()
+
+    def test_health_includes_tls_info_when_cert_exists(self, tmp_path):
+        from buncker.auth import generate_self_signed_cert
+
+        store_path = tmp_path / "store"
+        store_path.mkdir()
+        generate_self_signed_cert(store_path / "tls")
+
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(store_path)
+        srv = BunckerServer(bind="127.0.0.1", port=0, store=store, source_id="test")
+        srv.start()
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/health"
+            resp = urllib.request.urlopen(url)
+            data = json.loads(resp.read())
+            assert "tls" in data
+            assert "days_until_expiry" in data["tls"]
+            assert data["tls"]["expired"] is False
+        finally:
+            srv.stop()
+
+    def test_health_no_tls_section_without_cert(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/health"
+            resp = urllib.request.urlopen(url)
+            data = json.loads(resp.read())
+            assert "tls" not in data
+        finally:
+            srv.stop()
+
+    def test_health_requires_auth_when_enabled(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        tokens = {"readonly": "ro_" + "a" * 61, "admin": "ad_" + "b" * 61}
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+            api_tokens=tokens,
+            api_enabled=True,
+        )
+        srv.start()
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/health"
+            # Without token -> 401
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(url)
+            assert exc_info.value.code == 401
+
+            # With readonly token -> 200
+            req = urllib.request.Request(
+                url, headers={"Authorization": f"Bearer {tokens['readonly']}"}
+            )
+            resp = urllib.request.urlopen(req)
+            assert resp.status == 200
+        finally:
+            srv.stop()
+
+
 class TestRemoteDockerfileAnalysis:
     """Tests for remote Dockerfile analysis (Story 6.5)."""
 

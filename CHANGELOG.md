@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `buncker verify` command to re-hash all blobs and detect silent corruption (bit-rot)
+- `/admin/health` endpoint returning store integrity, TLS cert expiry, disk space, and uptime
+- TLS support in BunckerServer via `ssl.SSLContext` (server now serves HTTPS when configured)
+
+### Fixed
+
+- CA certificate missing `KeyUsage` and `SubjectKeyIdentifier` extensions (Python 3.14 compatibility)
+- Server certificate missing `AuthorityKeyIdentifier` extension
+- `blob_integrity_error` and `metadata_update_failed` logs missing audit fields (client_ip, auth_level, user_agent)
+
+### Security
+
+- `/admin/health` accessible with read-only token (same level as `/admin/status`)
+
 ## [0.8.1] - 2026-03-08
 
 ### Added
