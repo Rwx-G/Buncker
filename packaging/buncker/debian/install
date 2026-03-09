@@ -1,6 +1,8 @@
 usr/bin/buncker
 usr/lib/buncker/buncker/__init__.py
 usr/lib/buncker/buncker/__main__.py
+usr/lib/buncker/buncker/auth.py
+usr/lib/buncker/buncker/compose.py
 usr/lib/buncker/buncker/server.py
 usr/lib/buncker/buncker/handler.py
 usr/lib/buncker/buncker/resolver.py

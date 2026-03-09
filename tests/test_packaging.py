@@ -1,4 +1,4 @@
-"""Tests for .deb packaging structure and metadata."""
+"""Tests for .deb and .rpm packaging structure and metadata."""
 
 from __future__ import annotations
 
@@ -122,3 +122,67 @@ class TestBunckerFetchDeb:
         """buncker-fetch is a CLI tool, no daemon."""
         contents = _deb_contents(built_debs["buncker-fetch"])
         assert "systemd" not in contents
+
+
+# --- RPM spec validation (no rpmbuild needed) ---
+
+
+class TestRpmSpecs:
+    """Validate RPM spec files without building."""
+
+    def _read_spec(self, name: str) -> str:
+        spec = PROJECT_ROOT / "packaging" / name / "rpm" / f"{name}.spec"
+        assert spec.exists(), f"RPM spec not found: {spec}"
+        return spec.read_text(encoding="utf-8")
+
+    def test_buncker_spec_name(self):
+        spec = self._read_spec("buncker")
+        assert "Name:           buncker" in spec
+
+    def test_buncker_spec_requires(self):
+        spec = self._read_spec("buncker")
+        assert "python3 >= 3.11" in spec
+        assert "python3-cryptography" in spec
+        assert "python3-pyyaml" in spec
+
+    def test_buncker_spec_license(self):
+        spec = self._read_spec("buncker")
+        assert "Apache-2.0" in spec
+
+    def test_buncker_spec_files(self):
+        spec = self._read_spec("buncker")
+        assert "/usr/bin/buncker" in spec
+        assert "/usr/lib/buncker/" in spec
+        assert "/usr/lib/systemd/system/buncker.service" in spec
+        assert "/etc/logrotate.d/buncker" in spec
+
+    def test_buncker_spec_post(self):
+        spec = self._read_spec("buncker")
+        assert "%post" in spec
+        assert "groupadd" in spec
+        assert "useradd" in spec
+        assert "/var/lib/buncker" in spec
+        assert "/var/log/buncker" in spec
+
+    def test_fetch_spec_name(self):
+        spec = self._read_spec("buncker-fetch")
+        assert "Name:           buncker-fetch" in spec
+
+    def test_fetch_spec_requires(self):
+        spec = self._read_spec("buncker-fetch")
+        assert "python3 >= 3.11" in spec
+        assert "python3-cryptography" in spec
+
+    def test_fetch_spec_no_pyyaml(self):
+        """buncker-fetch does not need pyyaml."""
+        spec = self._read_spec("buncker-fetch")
+        assert "pyyaml" not in spec
+
+    def test_fetch_spec_files(self):
+        spec = self._read_spec("buncker-fetch")
+        assert "/usr/bin/buncker-fetch" in spec
+        assert "/usr/lib/buncker-fetch/" in spec
+
+    def test_fetch_spec_no_systemd(self):
+        spec = self._read_spec("buncker-fetch")
+        assert "systemd" not in spec

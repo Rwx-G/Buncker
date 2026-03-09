@@ -57,6 +57,57 @@ jobs:
           path: dist/*.deb
           retention-days: 30
 
+  build-rpm:
+    needs: test
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: dnf install -y rpm-build python3
+      - name: Build .rpm packages
+        run: make build-rpm
+      - name: Verify .rpm packages
+        run: |
+          for rpm in dist/*.rpm; do
+            echo "--- $rpm ---"
+            rpm -qpi "$rpm"
+            rpm -qpl "$rpm"
+          done
+      - name: Upload .rpm artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-packages
+          path: dist/*.rpm
+          retention-days: 30
+
+  test-rpm-install:
+    needs: build-rpm
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: rpm-packages
+          path: dist/
+      - name: Install RPMs
+        run: |
+          dnf install -y python3-cryptography python3-pyyaml
+          rpm -ivh dist/buncker-*.noarch.rpm
+          rpm -ivh dist/buncker-fetch-*.noarch.rpm
+      - name: Verify installation
+        run: |
+          test -x /usr/bin/buncker
+          test -x /usr/bin/buncker-fetch
+          test -f /usr/lib/systemd/system/buncker.service
+          test -f /etc/logrotate.d/buncker
+          test -d /usr/lib/buncker/buncker
+          test -d /usr/lib/buncker/shared
+          test -d /usr/lib/buncker-fetch/buncker_fetch
+          test -d /usr/lib/buncker-fetch/shared
+          echo "RPM installation verified OK"
+
   test-deb-install:
     needs: build-deb
     runs-on: ubuntu-latest
@@ -73,7 +124,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-deb, test-deb-install]
+    needs: [build-deb, test-deb-install, build-rpm, test-rpm-install]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -83,7 +134,11 @@ jobs:
         with:
           name: deb-packages
           path: dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: rpm-packages
+          path: dist/
       - name: Create GitHub Release
-        run: gh release create "${{ github.ref_name }}" dist/*.deb --title "Buncker ${{ github.ref_name }}" --generate-notes
+        run: gh release create "${{ github.ref_name }}" dist/*.deb dist/*.rpm --title "Buncker ${{ github.ref_name }}" --generate-notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

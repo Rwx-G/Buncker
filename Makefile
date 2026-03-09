@@ -1,4 +1,4 @@
-.PHONY: lint test build build-deb clean
+.PHONY: lint test build build-deb build-rpm clean
 
 VERSION := $(shell python3 -c "import buncker; print(buncker.__version__)" 2>/dev/null || echo "0.5.0")
 DIST := dist
@@ -62,6 +62,35 @@ define build_pkg
 	@# Build
 	@dpkg-deb --build --root-owner-group $(STAGE) $(DIST)/$(PKG)_$(VERSION)_all.deb
 	@rm -rf $(STAGE)
+endef
+
+build-rpm: $(DIST)/buncker-$(VERSION)-1.noarch.rpm $(DIST)/buncker-fetch-$(VERSION)-1.noarch.rpm
+	@echo "Built .rpm packages in $(DIST)/"
+
+$(DIST)/buncker-$(VERSION)-1.noarch.rpm:
+	@mkdir -p $(DIST)
+	$(call build_rpm,buncker)
+
+$(DIST)/buncker-fetch-$(VERSION)-1.noarch.rpm:
+	@mkdir -p $(DIST)
+	$(call build_rpm,buncker-fetch)
+
+# build_rpm(pkg_name)
+# Assembles an .rpm package using rpmbuild with project root as source.
+define build_rpm
+	$(eval PKG := $(1))
+	$(eval RPMTOP := $(DIST)/.rpmbuild-$(PKG))
+	@rm -rf $(RPMTOP)
+	@mkdir -p $(RPMTOP)/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+	@# Copy spec with patched version
+	@sed 's/^Version:.*/Version: $(VERSION)/' packaging/$(PKG)/rpm/$(PKG).spec > $(RPMTOP)/SPECS/$(PKG).spec
+	@# Link project root as source
+	@ln -sf $(CURDIR) $(RPMTOP)/SOURCES
+	@rpmbuild --define "_topdir $(CURDIR)/$(RPMTOP)" \
+		--define "_sourcedir $(CURDIR)" \
+		-bb $(RPMTOP)/SPECS/$(PKG).spec
+	@cp $(RPMTOP)/RPMS/noarch/$(PKG)-$(VERSION)-*.noarch.rpm $(DIST)/
+	@rm -rf $(RPMTOP)
 endef
 
 clean:
