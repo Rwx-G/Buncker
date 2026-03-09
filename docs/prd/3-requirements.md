@@ -28,10 +28,14 @@
 - **FR24:** `buncker api-setup` activates TLS: accepts an operator-provided certificate (`--cert`, `--key`) or generates an auto-signed certificate with an explicit security warning. Reuses the existing `buncker export-ca` mechanism
 - **FR25:** All API log entries include `client_ip`, `auth_level` (`admin`, `readonly`, `local`, `rejected`), and `user_agent` fields
 - **FR26:** Failed authentication attempts (invalid or missing token) are logged with `auth_level: rejected` and do not reveal whether the token was close to valid
+- **FR27:** `buncker analyze --compose <path>` parses a Docker Compose YAML file, extracts `image:` references and `build.dockerfile` paths from all services, and runs the resolver pipeline on each
+- **FR28:** `--restrict-oci` server flag (config: `oci.restrict: true`) requires a valid read-only or admin Bearer token on `/v2/*` endpoints; Docker clients must configure registry auth via `hosts.toml`
+- **FR29:** Manifest cache tracks `cached_at` timestamp; `buncker analyze` emits a warning for manifests older than `manifest_ttl` (default 30 days, configurable in config.json)
+- **FR30:** `buncker generate-manifest --refresh-stale` includes stale manifests (TTL exceeded) in the transfer request so buncker-fetch re-downloads them
 
 ## Non Functional
 
-- **NFR1:** Python >=3.11 as baseline. Only external dependency: `python3-cryptography` installed via apt. No pip.
+- **NFR1:** Python >=3.11 as baseline. External dependencies: `python3-cryptography` and `python3-yaml` installed via apt. No pip.
 - **NFR2:** .deb packaging for both components (buncker and buncker-fetch), with Depends: python3 (>= 3.11), python3-cryptography
 - **NFR3:** The store uses the standard OCI Image Layout format. No database - everything is filesystem
 - **NFR4:** Store writes are atomic (temp + verify SHA256 + rename). A crash never corrupts the store

@@ -18,4 +18,7 @@ Build .deb packages, run e2e tests for the full cycle, document the project, pro
 ## Epic 6 - Admin API Authentication & LAN Client Operations
 Secure the admin API with Bearer token authentication and TLS, then enable LAN clients to perform registry operations (analyze, generate-manifest, import) remotely via curl. Optional setup via `buncker api-setup` - installations using local-only access remain unchanged.
 
+## Epic 7 - Compose, Packaging, Hardening & Release 1.0
+Docker Compose analysis, RPM packaging for enterprise Linux, log rotation, OCI auth restriction for high-security environments, manifest cache TTL for freshness control. Feature-complete release.
+
 ---

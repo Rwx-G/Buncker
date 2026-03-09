@@ -538,21 +538,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| API auth & LAN clients | Bearer tokens (admin + readonly), TLS, endpoint access control, audit trail | Done |
-| Remote operations | curl-based analyze, generate-manifest download, PUT streaming import with resume | Done |
-| Health-check endpoint | `/admin/health` returning store integrity, cert expiry, and disk space | Done |
-| Store integrity check | `buncker verify` command to re-hash all blobs and detect silent corruption (bit-rot) | Done |
-| GC impact report | `gc --report` shows which images become non-pullable if candidates are deleted | Done |
-| GC execute confirmation | `gc --execute` requires `--yes` flag or interactive confirmation to prevent accidents | Done |
-| Fetch rate limiting | Auto-pace blob downloads based on registry `RateLimit-*` headers | Done |
-| Manifest auto-refresh | buncker-fetch re-downloads manifests on every fetch and warns if upstream digest changed | Done |
-| Resolver ARG edge cases | Support for `${VAR:-default}` and `${VAR:+replacement}` syntax, complex `--platform` patterns | Done |
-| Security hardening docs | Document `/etc/buncker/env` encryption recommendations and `/v2/*` unauthenticated access risks | Done |
-| Quick start with `prepare` | Feature `buncker prepare` in main README workflow instead of separate analyze + generate-manifest | Done |
-| Docker Compose support | `buncker analyze --compose docker-compose.yml` to extract all images from multi-service projects | Planned |
-| .deb GPG signature verification | Verify GPG signature on `.deb` updates included in transfer responses before installation | Planned |
-| Log rotation | Built-in log rotation policy or logrotate config for `/var/log/buncker/` | Planned |
-| buncker-fetch on Windows | PyInstaller binary or WSL2 documentation for online-side Windows operators | Planned |
+| Docker Compose support | `buncker analyze --compose docker-compose.yml` to extract `image:` and `build.dockerfile` from all services | Planned |
+| RPM packaging | `.rpm` packages for RHEL/Fedora enterprise environments | Planned |
+| Log rotation | `logrotate.d/buncker` config shipped in .deb/.rpm for `/var/log/buncker/` | Planned |
+| OCI auth restriction | `--restrict-oci` flag to require read-only token on `/v2/*` endpoints (high-security environments) | Planned |
+| Manifest cache TTL | Configurable TTL (default 30d) on offline manifest cache with staleness warning and `--refresh-stale` flag | Planned |
 
 ## License
 
