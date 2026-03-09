@@ -51,7 +51,9 @@ Both modes use the same transfer pipeline: encrypted request out, blobs fetched 
 | **BIP-39 mnemonic** | 16-word shared secret, no PKI to manage |
 | **OCI standard** | Local registry compatible with `docker pull`, no client changes |
 | **Full audit trail** | Every operation logged in structured JSON Lines |
-| **Zero exotic deps** | Python stdlib + `python3-cryptography` (apt) |
+| **Compose support** | Analyze `docker-compose.yml` to resolve all service images at once |
+| **Manifest staleness** | Configurable TTL warns when cached manifests are outdated, `--refresh-stale` re-fetches them |
+| **Zero exotic deps** | Python stdlib + `python3-cryptography` + `python3-yaml` (apt/dnf) |
 
 ## Components
 
@@ -64,7 +66,7 @@ Both modes use the same transfer pipeline: encrypted request out, blobs fetched 
 
 - Debian 12+ / Ubuntu 22.04+ or RHEL 9+ / Fedora 38+
 - Python >= 3.11
-- `python3-cryptography` (installed via apt/dnf, not pip)
+- `python3-cryptography` and `python3-yaml` (installed via apt/dnf, not pip)
 
 ## Installation
 
@@ -103,7 +105,7 @@ sudo dnf install buncker-fetch-1.0.0-1.noarch.rpm
 ```bash
 git clone https://github.com/Rwx-G/Buncker.git
 cd Buncker
-pip install ruff pytest cryptography   # dev dependencies
+pip install ruff pytest cryptography pyyaml  # dev dependencies
 make build-deb                         # build .deb packages to dist/
 sudo dpkg -i dist/buncker_*_all.deb
 sudo dpkg -i dist/buncker-fetch_*_all.deb

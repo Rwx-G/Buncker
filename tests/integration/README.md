@@ -285,6 +285,33 @@ Buncker registry status:
   Listening on: 0.0.0.0:5000
 ```
 
+## Automated Test Script
+
+An automated 3-phase test script runs the full integration suite:
+
+```bash
+# From project root
+make integration-test
+# Or directly:
+bash tests/integration/scripts/test-full-flow.sh
+```
+
+The script executes 40 checks across 3 phases:
+
+| Phase | Description | Checks |
+|-------|-------------|--------|
+| **Phase 1** | Core flow: setup, pair, analyze, generate-manifest, fetch, import, docker build | ~20 |
+| **Phase 2** | API auth + LAN client: api-setup, token auth, TLS, curl-based admin operations | ~11 |
+| **Phase 3** | OCI restricted mode: `--restrict-oci`, 401 challenges, Bearer token on `/v2/*` | ~9 |
+
+Phase 3 validates that:
+- `/v2/` without token returns 401 with `WWW-Authenticate: Bearer` header
+- `/v2/` with readonly or admin token returns 200
+- Manifest and blob pulls without token return 401
+- HEAD requests without token return 401
+- Admin `/status` endpoint remains accessible
+- Invalid tokens are rejected
+
 ## Verification checklist
 
 - [ ] `docker compose up -d --build` starts all 3 containers
