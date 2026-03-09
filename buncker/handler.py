@@ -587,10 +587,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
         if refresh_stale:
             stale_keys: set[str] = set()
             for sm in getattr(analysis, "stale_manifests", []):
-                key = (
-                    f"{sm['registry']}/{sm['repository']}"
-                    f":{sm['tag']}"
-                )
+                key = f"{sm['registry']}/{sm['repository']}:{sm['tag']}"
                 if key not in seen_images:
                     seen_images.add(key)
                     images.append(

@@ -194,26 +194,28 @@ class TestIsStale:
 
     def test_returns_none_for_uncached_manifest(self, tmp_path):
         cache = ManifestCache(tmp_path)
-        result = cache.is_stale(
-            "docker.io", "library/nginx", "1.25", "linux/amd64", 30
-        )
+        result = cache.is_stale("docker.io", "library/nginx", "1.25", "linux/amd64", 30)
         assert result is None
 
     def test_fresh_manifest_is_not_stale(self, tmp_path):
         cache = ManifestCache(tmp_path)
         cache.cache_manifest(
-            "docker.io", "library/nginx", "1.25", "linux/amd64",
+            "docker.io",
+            "library/nginx",
+            "1.25",
+            "linux/amd64",
             SAMPLE_MANIFEST,
         )
-        result = cache.is_stale(
-            "docker.io", "library/nginx", "1.25", "linux/amd64", 30
-        )
+        result = cache.is_stale("docker.io", "library/nginx", "1.25", "linux/amd64", 30)
         assert result is False
 
     def test_old_manifest_is_stale(self, tmp_path):
         cache = ManifestCache(tmp_path)
         path = cache.cache_manifest(
-            "docker.io", "library/nginx", "1.25", "linux/amd64",
+            "docker.io",
+            "library/nginx",
+            "1.25",
+            "linux/amd64",
             SAMPLE_MANIFEST,
         )
         # Backdate the cached_at timestamp by 45 days
@@ -222,15 +224,16 @@ class TestIsStale:
         data["_buncker"]["cached_at"] = old_date.isoformat()
         path.write_text(json.dumps(data, indent=2))
 
-        result = cache.is_stale(
-            "docker.io", "library/nginx", "1.25", "linux/amd64", 30
-        )
+        result = cache.is_stale("docker.io", "library/nginx", "1.25", "linux/amd64", 30)
         assert result is True
 
     def test_manifest_without_cached_at_is_stale(self, tmp_path):
         cache = ManifestCache(tmp_path)
         path = cache.cache_manifest(
-            "docker.io", "library/nginx", "1.25", "linux/amd64",
+            "docker.io",
+            "library/nginx",
+            "1.25",
+            "linux/amd64",
             SAMPLE_MANIFEST,
         )
         # Remove cached_at
@@ -238,9 +241,7 @@ class TestIsStale:
         del data["_buncker"]["cached_at"]
         path.write_text(json.dumps(data, indent=2))
 
-        result = cache.is_stale(
-            "docker.io", "library/nginx", "1.25", "linux/amd64", 30
-        )
+        result = cache.is_stale("docker.io", "library/nginx", "1.25", "linux/amd64", 30)
         assert result is True
 
 
@@ -255,12 +256,18 @@ class TestCountStale:
         cache = ManifestCache(tmp_path)
         # Fresh manifest
         cache.cache_manifest(
-            "docker.io", "library/nginx", "1.25", "linux/amd64",
+            "docker.io",
+            "library/nginx",
+            "1.25",
+            "linux/amd64",
             SAMPLE_MANIFEST,
         )
         # Stale manifest (backdate to 45 days ago)
         path = cache.cache_manifest(
-            "docker.io", "library/alpine", "3.19", "linux/amd64",
+            "docker.io",
+            "library/alpine",
+            "3.19",
+            "linux/amd64",
             SAMPLE_MANIFEST,
         )
         data = json.loads(path.read_text())
@@ -279,8 +286,11 @@ class TestCountStale:
 
         store = Store(tmp_path / "store")
         srv = BunckerServer(
-            bind="127.0.0.1", port=0, store=store,
-            source_id="test", manifest_ttl=30,
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+            manifest_ttl=30,
         )
         srv.start()
         try:

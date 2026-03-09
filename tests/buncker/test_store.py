@@ -3,7 +3,6 @@
 import hashlib
 import json
 import os
-import stat
 import sys
 from datetime import UTC, datetime, timedelta
 

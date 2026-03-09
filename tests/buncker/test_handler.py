@@ -1028,10 +1028,7 @@ class TestOciRestriction:
     def test_manifest_returns_401_without_token_when_restricted(self, tmp_path):
         srv = self._make_restricted_server(tmp_path)
         try:
-            url = (
-                f"http://127.0.0.1:{srv.port}"
-                "/v2/library/nginx/manifests/latest"
-            )
+            url = f"http://127.0.0.1:{srv.port}/v2/library/nginx/manifests/latest"
             with pytest.raises(HTTPError) as exc_info:
                 urllib.request.urlopen(url)
             assert exc_info.value.code == 401
@@ -1044,10 +1041,7 @@ class TestOciRestriction:
         srv = self._make_restricted_server(tmp_path)
         try:
             digest = "sha256:" + "a" * 64
-            url = (
-                f"http://127.0.0.1:{srv.port}"
-                f"/v2/library/test/blobs/{digest}"
-            )
+            url = f"http://127.0.0.1:{srv.port}/v2/library/test/blobs/{digest}"
             with pytest.raises(HTTPError) as exc_info:
                 urllib.request.urlopen(url)
             assert exc_info.value.code == 401
@@ -1061,10 +1055,7 @@ class TestOciRestriction:
         digest = f"sha256:{hashlib.sha256(blob_data).hexdigest()}"
         srv.store.import_blob(blob_data, digest)
         try:
-            url = (
-                f"http://127.0.0.1:{srv.port}"
-                f"/v2/library/test/blobs/{digest}"
-            )
+            url = f"http://127.0.0.1:{srv.port}/v2/library/test/blobs/{digest}"
             req = urllib.request.Request(
                 url,
                 headers={"Authorization": f"Bearer {self._TOKENS['readonly']}"},
@@ -1088,10 +1079,7 @@ class TestOciRestriction:
     def test_head_returns_401_without_token_when_restricted(self, tmp_path):
         srv = self._make_restricted_server(tmp_path)
         try:
-            url = (
-                f"http://127.0.0.1:{srv.port}"
-                "/v2/library/nginx/manifests/latest"
-            )
+            url = f"http://127.0.0.1:{srv.port}/v2/library/nginx/manifests/latest"
             req = urllib.request.Request(url, method="HEAD")
             with pytest.raises(HTTPError) as exc_info:
                 urllib.request.urlopen(req)

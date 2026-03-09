@@ -539,15 +539,11 @@ class TestGlobalFlowOciRestricted:
             assert 'realm="buncker"' in www_auth
 
             # -- OCI /v2/ with readonly token -> 200 --
-            v2_resp = json.loads(
-                _http_get(base, "/v2/", token=tokens["readonly"])
-            )
+            v2_resp = json.loads(_http_get(base, "/v2/", token=tokens["readonly"]))
             assert v2_resp["status"] == "ok"
 
             # -- OCI /v2/ with admin token -> 200 --
-            v2_resp = json.loads(
-                _http_get(base, "/v2/", token=tokens["admin"])
-            )
+            v2_resp = json.loads(_http_get(base, "/v2/", token=tokens["admin"]))
             assert v2_resp["status"] == "ok"
 
             # -- Admin endpoints still work normally with admin token --
@@ -610,9 +606,7 @@ class TestGlobalFlowOciRestricted:
             # -- OCI blob pull without token -> 401 --
             first_digest = list(BLOB_REGISTRY.keys())[0]
             with pytest.raises(HTTPError) as exc_info:
-                _http_get(
-                    base, f"/v2/test.registry.io/myapp/blobs/{first_digest}"
-                )
+                _http_get(base, f"/v2/test.registry.io/myapp/blobs/{first_digest}")
             assert exc_info.value.code == 401
 
             # -- OCI blob pull with readonly token -> 200 --
@@ -628,9 +622,7 @@ class TestGlobalFlowOciRestricted:
 
             # -- OCI manifest pull without token -> 401 --
             with pytest.raises(HTTPError) as exc_info:
-                _http_get(
-                    base, "/v2/test.registry.io/myapp/manifests/v1"
-                )
+                _http_get(base, "/v2/test.registry.io/myapp/manifests/v1")
             assert exc_info.value.code == 401
 
             # -- OCI manifest pull with token -> 200 --

@@ -204,9 +204,7 @@ def _resolve_image_blobs(
 
     # Check staleness
     if manifest_ttl > 0 and image.tag:
-        _check_staleness(
-            registry_client, image, platform, manifest_ttl, result
-        )
+        _check_staleness(registry_client, image, platform, manifest_ttl, result)
 
     layer_digests = _extract_layer_digests(manifest)
     new_digests = [d for d in layer_digests if d not in seen_digests]
@@ -306,9 +304,7 @@ def resolve_dockerfile(
 
         # Check staleness
         if manifest_ttl > 0 and image.tag:
-            _check_staleness(
-                registry_client, image, platform, manifest_ttl, result
-            )
+            _check_staleness(registry_client, image, platform, manifest_ttl, result)
 
         layer_digests = _extract_layer_digests(manifest)
 

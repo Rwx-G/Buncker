@@ -50,12 +50,7 @@ class TestParseCompose:
     def test_build_context_only_defaults_to_dockerfile(self, tmp_path: Path) -> None:
         """Service with build.context but no dockerfile defaults to Dockerfile (AC4)."""
         compose = tmp_path / "docker-compose.yml"
-        compose.write_text(
-            "services:\n"
-            "  app:\n"
-            "    build:\n"
-            "      context: ./src\n"
-        )
+        compose.write_text("services:\n  app:\n    build:\n      context: ./src\n")
         services = parse_compose(compose)
         assert len(services) == 1
         expected = (tmp_path / "src").resolve() / "Dockerfile"
@@ -64,11 +59,7 @@ class TestParseCompose:
     def test_build_short_form(self, tmp_path: Path) -> None:
         """Service with build: ./path (short form)."""
         compose = tmp_path / "docker-compose.yml"
-        compose.write_text(
-            "services:\n"
-            "  app:\n"
-            "    build: ./myapp\n"
-        )
+        compose.write_text("services:\n  app:\n    build: ./myapp\n")
         services = parse_compose(compose)
         assert len(services) == 1
         expected = (tmp_path / "myapp").resolve() / "Dockerfile"
@@ -158,11 +149,7 @@ class TestParseComposeContent:
     def test_image_services(self) -> None:
         """Extracts image: refs from content string."""
         content = (
-            "services:\n"
-            "  web:\n"
-            "    image: nginx:1.25\n"
-            "  db:\n"
-            "    image: postgres:16\n"
+            "services:\n  web:\n    image: nginx:1.25\n  db:\n    image: postgres:16\n"
         )
         services = parse_compose_content(content)
         assert len(services) == 2
@@ -171,12 +158,7 @@ class TestParseComposeContent:
 
     def test_build_services_skipped_in_content_mode(self) -> None:
         """Build services are skipped in content mode (no filesystem)."""
-        content = (
-            "services:\n"
-            "  app:\n"
-            "    build:\n"
-            "      context: ./app\n"
-        )
+        content = "services:\n  app:\n    build:\n      context: ./app\n"
         services = parse_compose_content(content)
         assert len(services) == 0
 
@@ -219,9 +201,7 @@ class TestResolveCompose:
         )
 
         # nginx:1.25 appears only once in images despite two services
-        nginx_images = [
-            img for img in result.images if "nginx" in img.resolved
-        ]
+        nginx_images = [img for img in result.images if "nginx" in img.resolved]
         assert len(nginx_images) == 1
 
     def test_compose_with_blobs(self, tmp_path: Path) -> None:

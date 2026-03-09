@@ -148,9 +148,7 @@ def import_response(
                 raise
             except Exception as exc:
                 if "outside" in str(exc).lower() or "absolute" in str(exc).lower():
-                    raise TransferError(
-                        f"Unsafe tar member rejected: {exc}"
-                    ) from exc
+                    raise TransferError(f"Unsafe tar member rejected: {exc}") from exc
                 raise
 
         # Check for ERRORS.json
