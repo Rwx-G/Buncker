@@ -94,8 +94,7 @@ jobs:
       - name: Install RPMs
         run: |
           dnf install -y python3-cryptography python3-pyyaml
-          rpm -ivh dist/buncker-*.noarch.rpm
-          rpm -ivh dist/buncker-fetch-*.noarch.rpm
+          rpm -ivh dist/*.noarch.rpm
       - name: Verify installation
         run: |
           test -x /usr/bin/buncker
