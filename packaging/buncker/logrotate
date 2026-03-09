@@ -1,0 +1,9 @@
+/var/log/buncker/*.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}

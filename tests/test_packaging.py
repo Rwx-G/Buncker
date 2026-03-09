@@ -186,3 +186,44 @@ class TestRpmSpecs:
     def test_fetch_spec_no_systemd(self):
         spec = self._read_spec("buncker-fetch")
         assert "systemd" not in spec
+
+
+# --- Logrotate config validation ---
+
+
+class TestLogrotateConfig:
+    """Validate logrotate configuration file."""
+
+    def _read_logrotate(self) -> str:
+        path = PROJECT_ROOT / "packaging" / "buncker" / "logrotate"
+        assert path.exists(), f"Logrotate config not found: {path}"
+        return path.read_text(encoding="utf-8")
+
+    def test_targets_buncker_logs(self):
+        config = self._read_logrotate()
+        assert "/var/log/buncker/*.log" in config
+
+    def test_daily_rotation(self):
+        config = self._read_logrotate()
+        assert "daily" in config
+
+    def test_keeps_30_days(self):
+        config = self._read_logrotate()
+        assert "rotate 30" in config
+
+    def test_compress(self):
+        config = self._read_logrotate()
+        assert "compress" in config
+        assert "delaycompress" in config
+
+    def test_copytruncate(self):
+        config = self._read_logrotate()
+        assert "copytruncate" in config
+
+    def test_missingok(self):
+        config = self._read_logrotate()
+        assert "missingok" in config
+
+    def test_notifempty(self):
+        config = self._read_logrotate()
+        assert "notifempty" in config

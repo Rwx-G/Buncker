@@ -59,6 +59,10 @@ define build_pkg
 		mkdir -p $(STAGE)/lib/systemd/system; \
 		sed 's/\r$$//' packaging/$(DEBDIR)/debian/$(PKG).service > $(STAGE)/lib/systemd/system/$(PKG).service; \
 	fi
+	@if [ -f packaging/$(DEBDIR)/logrotate ]; then \
+		mkdir -p $(STAGE)/etc/logrotate.d; \
+		sed 's/\r$$//' packaging/$(DEBDIR)/logrotate > $(STAGE)/etc/logrotate.d/$(PKG); \
+	fi
 	@# Build
 	@dpkg-deb --build --root-owner-group $(STAGE) $(DIST)/$(PKG)_$(VERSION)_all.deb
 	@rm -rf $(STAGE)
