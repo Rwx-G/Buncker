@@ -352,60 +352,30 @@ class BunckerHandler(BaseHTTPRequestHandler):
         return client_ip in ("127.0.0.1", "::1", "localhost")
 
     def _handle_admin_analyze(self):
-        """POST /admin/analyze - Analyze a Dockerfile."""
+        """POST /admin/analyze - Analyze a Dockerfile or Compose file."""
         body = self._read_json_body()
         if body is None:
             return
 
         dockerfile_content = body.get("dockerfile_content")
         dockerfile = body.get("dockerfile")
+        compose_content = body.get("compose_content")
+        compose_path_str = body.get("compose_path")
         build_args = body.get("build_args", {})
 
-        if dockerfile_content:
-            # Content mode: write to temp file
-            import tempfile
-
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".Dockerfile", delete=False, encoding="utf-8"
-            ) as tmp:
-                tmp.write(dockerfile_content)
-                dockerfile_path = Path(tmp.name)
-        elif dockerfile:
-            # Path mode: localhost only
-            if not self._is_localhost():
-                self._send_admin_error(
-                    400,
-                    "PATH_NOT_ALLOWED",
-                    "Path-based analysis is only available from localhost. "
-                    "Send dockerfile_content instead.",
-                )
-                return
-
-            # Path traversal prevention: resolve symlinks and verify file exists
-            dockerfile_path = Path(dockerfile).resolve()
-            if ".." in Path(dockerfile).parts or not dockerfile_path.is_file():
-                self._send_admin_error(
-                    400, "INVALID_PATH", "path traversal not allowed"
-                )
-                return
-        else:
-            self._send_admin_error(
-                400, "MISSING_FIELD", "dockerfile or dockerfile_content field required"
-            )
-            return
-
         store = self._get_store()
+        is_compose = compose_content or compose_path_str
+        temp_path = None
 
         try:
-            from buncker.registry_client import ManifestCache
-            from buncker.resolver import resolve_dockerfile
-
-            result = resolve_dockerfile(
-                dockerfile_path,
-                build_args,
-                store=store,
-                registry_client=ManifestCache(store.path),
-            )
+            if is_compose:
+                result = self._analyze_compose(
+                    compose_content, compose_path_str, build_args, store
+                )
+            else:
+                result, temp_path = self._analyze_dockerfile(
+                    dockerfile_content, dockerfile, build_args, store
+                )
         except ResolverError as e:
             self._send_admin_error(400, "RESOLVER_ERROR", str(e))
             return
@@ -413,9 +383,11 @@ class BunckerHandler(BaseHTTPRequestHandler):
             self._send_admin_error(500, "INTERNAL_ERROR", str(e))
             return
         finally:
-            # Clean up temp file from content mode
-            if dockerfile_content:
-                dockerfile_path.unlink(missing_ok=True)
+            if temp_path:
+                temp_path.unlink(missing_ok=True)
+
+        if result is None:
+            return
 
         # Store analysis result for generate-manifest (thread-safe)
         with self._server_ref._analysis_lock:
@@ -443,8 +415,10 @@ class BunckerHandler(BaseHTTPRequestHandler):
             "warnings": result.warnings,
         }
 
+        is_compose = result.source_path == "compose"
+        event = "compose_analyzed" if is_compose else "dockerfile_analyzed"
         _log.info(
-            "dockerfile_analyzed",
+            event,
             extra={
                 **self._request_meta(self._auth_level),
                 "images": len(report["images"]),
@@ -452,6 +426,91 @@ class BunckerHandler(BaseHTTPRequestHandler):
             },
         )
         self._send_json(200, report)
+
+    def _analyze_dockerfile(self, content, path_str, build_args, store):
+        """Analyze a single Dockerfile. Returns (AnalysisResult, temp_path)."""
+        temp_path = None
+
+        if content:
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".Dockerfile", delete=False, encoding="utf-8"
+            ) as tmp:
+                tmp.write(content)
+                dockerfile_path = Path(tmp.name)
+                temp_path = dockerfile_path
+        elif path_str:
+            if not self._is_localhost():
+                self._send_admin_error(
+                    400,
+                    "PATH_NOT_ALLOWED",
+                    "Path-based analysis is only available from localhost. "
+                    "Send dockerfile_content instead.",
+                )
+                return None, None
+
+            dockerfile_path = Path(path_str).resolve()
+            if ".." in Path(path_str).parts or not dockerfile_path.is_file():
+                self._send_admin_error(
+                    400, "INVALID_PATH", "path traversal not allowed"
+                )
+                return None, None
+        else:
+            self._send_admin_error(
+                400,
+                "MISSING_FIELD",
+                "dockerfile, dockerfile_content, compose_path,"
+                " or compose_content field required",
+            )
+            return None, None
+
+        from buncker.registry_client import ManifestCache
+        from buncker.resolver import resolve_dockerfile
+
+        result = resolve_dockerfile(
+            dockerfile_path,
+            build_args,
+            store=store,
+            registry_client=ManifestCache(store.path),
+        )
+        return result, temp_path
+
+    def _analyze_compose(self, content, path_str, build_args, store):
+        """Analyze a Docker Compose file. Returns AnalysisResult."""
+        from buncker.compose import parse_compose, parse_compose_content
+        from buncker.registry_client import ManifestCache
+        from buncker.resolver import resolve_compose
+
+        if content:
+            services = parse_compose_content(content)
+        elif path_str:
+            if not self._is_localhost():
+                self._send_admin_error(
+                    400,
+                    "PATH_NOT_ALLOWED",
+                    "Path-based analysis is only available from localhost. "
+                    "Send compose_content instead.",
+                )
+                return None
+
+            compose_path = Path(path_str).resolve()
+            if ".." in Path(path_str).parts or not compose_path.is_file():
+                self._send_admin_error(
+                    400, "INVALID_PATH", "path traversal not allowed"
+                )
+                return None
+
+            services = parse_compose(compose_path)
+        else:
+            return None
+
+        return resolve_compose(
+            services,
+            build_args,
+            store=store,
+            registry_client=ManifestCache(store.path),
+        )
 
     def _handle_admin_generate_manifest(self):
         """POST /admin/generate-manifest - Generate encrypted transfer request."""

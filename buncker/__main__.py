@@ -68,8 +68,19 @@ def main() -> None:
     subparsers.add_parser("serve", help="Start the HTTP daemon")
 
     # analyze
-    sub_analyze = subparsers.add_parser("analyze", help="Analyze a Dockerfile")
-    sub_analyze.add_argument("dockerfile", type=Path, help="Path to Dockerfile")
+    sub_analyze = subparsers.add_parser(
+        "analyze", help="Analyze a Dockerfile or Compose file"
+    )
+    analyze_input = sub_analyze.add_mutually_exclusive_group(required=True)
+    analyze_input.add_argument(
+        "dockerfile", type=Path, nargs="?", help="Path to Dockerfile"
+    )
+    analyze_input.add_argument(
+        "--compose",
+        type=Path,
+        default=None,
+        help="Path to docker-compose.yml",
+    )
     sub_analyze.add_argument(
         "--build-arg",
         action="append",
@@ -843,7 +854,10 @@ def _cmd_proxy(args: argparse.Namespace) -> None:
             key, _, value = ba.partition("=")
             build_args[key] = value
 
-        data = {"dockerfile": str(args.dockerfile)}
+        if getattr(args, "compose", None):
+            data = {"compose_path": str(args.compose.resolve())}
+        else:
+            data = {"dockerfile": str(args.dockerfile)}
         if build_args:
             data["build_args"] = build_args
 

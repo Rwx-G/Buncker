@@ -45,6 +45,182 @@ class AnalysisResult:
     warnings: list[str] = field(default_factory=list)
 
 
+def resolve_compose(
+    services: list,
+    build_args: dict[str, str] | None = None,
+    *,
+    store: object,
+    registry_client: object,
+    private_registries: list[str] | None = None,
+    default_platform: str = "linux/amd64",
+) -> AnalysisResult:
+    """Resolve all images from a parsed Compose file.
+
+    Args:
+        services: List of ComposeService from parse_compose().
+        build_args: Optional build-arg overrides for Dockerfiles.
+        store: Store instance with ``list_missing()`` method.
+        registry_client: ManifestCache with ``get_manifest()`` method.
+        private_registries: Optional list of private registry patterns.
+        default_platform: Default platform when FROM has none.
+
+    Returns:
+        Aggregated AnalysisResult with deduplicated blobs.
+    """
+    build_args = build_args or {}
+    aggregated = AnalysisResult(
+        source_path="compose",
+        build_args=build_args,
+        images=[],
+        present_blobs=set(),
+    )
+
+    seen_image_refs: set[str] = set()
+    seen_digests: set[str] = set()
+
+    for svc in services:
+        if svc.image_ref:
+            # Deduplication: skip if same image ref already processed (AC7)
+            if svc.image_ref in seen_image_refs:
+                continue
+            seen_image_refs.add(svc.image_ref)
+
+            # Treat image ref as a single FROM instruction
+            images = _resolve_image_ref(
+                svc.image_ref,
+                private_registries=private_registries,
+            )
+            for image in images:
+                aggregated.images.append(image)
+                _resolve_image_blobs(
+                    image,
+                    aggregated,
+                    seen_digests,
+                    store=store,
+                    registry_client=registry_client,
+                    default_platform=default_platform,
+                )
+        elif svc.dockerfile_path:
+            # Resolve Dockerfile through existing pipeline
+            try:
+                sub_result = resolve_dockerfile(
+                    svc.dockerfile_path,
+                    build_args,
+                    store=store,
+                    registry_client=registry_client,
+                    private_registries=private_registries,
+                    default_platform=default_platform,
+                )
+                for image in sub_result.images:
+                    aggregated.images.append(image)
+                aggregated.present_blobs.update(sub_result.present_blobs)
+                for blob in sub_result.missing_blobs:
+                    if blob["digest"] not in seen_digests:
+                        seen_digests.add(blob["digest"])
+                        aggregated.missing_blobs.append(blob)
+                        aggregated.total_missing_size += blob.get("size", 0)
+                aggregated.warnings.extend(sub_result.warnings)
+            except ResolverError as exc:
+                msg = f"Service '{svc.name}': {exc}"
+                aggregated.warnings.append(msg)
+                _log.warning(msg)
+
+    return aggregated
+
+
+def _resolve_image_ref(
+    image_ref: str,
+    *,
+    private_registries: list[str] | None = None,
+) -> list[ResolvedImage]:
+    """Parse an image reference string into a ResolvedImage (like a FROM)."""
+    private_registries = private_registries or []
+    registry, repository, tag, digest = _parse_image_ref(image_ref)
+    is_private = _is_private(registry, private_registries)
+    resolved = _build_resolved(registry, repository, tag, digest)
+
+    return [
+        ResolvedImage(
+            raw=image_ref,
+            resolved=resolved,
+            registry=registry,
+            repository=repository,
+            tag=tag,
+            digest=digest,
+            platform=None,
+            alias=None,
+            is_internal=False,
+            is_private=is_private,
+            line_number=0,
+        )
+    ]
+
+
+def _resolve_image_blobs(
+    image: ResolvedImage,
+    result: AnalysisResult,
+    seen_digests: set[str],
+    *,
+    store: object,
+    registry_client: object,
+    default_platform: str,
+) -> None:
+    """Resolve blobs for a single image and update the result."""
+    if image.is_internal:
+        return
+
+    if image.is_private:
+        msg = f"Private registry {image.registry} skipped"
+        result.warnings.append(msg)
+        _log.warning(msg)
+        return
+
+    if image.tag == "latest":
+        msg = f"Image {image.resolved} uses tag 'latest' - consider pinning"
+        result.warnings.append(msg)
+        _log.warning(msg)
+
+    platform = image.platform or default_platform
+    reference = image.digest if image.digest else image.tag
+
+    manifest = registry_client.get_manifest(
+        image.registry,
+        image.repository,
+        reference,
+        platform,
+    )
+
+    if manifest is None:
+        msg = f"Manifest not cached for {image.resolved} - run fetch first"
+        result.warnings.append(msg)
+        _log.warning(msg)
+        return
+
+    layer_digests = _extract_layer_digests(manifest)
+    new_digests = [d for d in layer_digests if d not in seen_digests]
+    seen_digests.update(new_digests)
+
+    if not new_digests:
+        return
+
+    missing = store.list_missing(new_digests)
+    present = set(new_digests) - set(missing)
+    result.present_blobs.update(present)
+
+    for d in missing:
+        layer_info = _find_layer_info(manifest, d)
+        result.missing_blobs.append(
+            {
+                "registry": image.registry,
+                "repository": image.repository,
+                "digest": d,
+                "size": layer_info.get("size", 0),
+                "media_type": layer_info.get("mediaType", ""),
+            }
+        )
+        result.total_missing_size += layer_info.get("size", 0)
+
+
 def resolve_dockerfile(
     path: Path,
     build_args: dict[str, str] | None = None,
