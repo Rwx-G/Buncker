@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-03-09
+
+### Added
+
+- Docker Compose analysis: `buncker analyze --compose <file>` parses `docker-compose.yml` to resolve all service images and Dockerfiles in one pass
+- Remote Compose analysis via `compose_content` / `compose_path` fields in `POST /admin/analyze`
+- RPM packaging for RHEL/Fedora: `.spec` files, `make build-rpm` target, CI build and install jobs
+- Logrotate configuration for `/var/log/buncker/*.log` (daily rotation, 30 days retention, compress + copytruncate)
+- `--restrict-oci` flag on `buncker serve`: requires Bearer token on `/v2/*` endpoints with `WWW-Authenticate` challenge per OCI Distribution Spec
+- `oci.restrict` config option (default: false) for persistent OCI auth restriction
+- Manifest cache TTL: `manifest_ttl` config option (default: 30 days) triggers warnings for stale manifests during analyze
+- `--refresh-stale` flag on `buncker generate-manifest` to include stale manifests for re-download by buncker-fetch
+- `stale_manifests` count in `GET /admin/status` response
+- `stale_manifests` list in analyze response for programmatic detection
+
+### Changed
+
+- `packaging/buncker/debian/control` now depends on `python3-yaml` for Compose support
+- `.deb` install file updated with `auth.py` and `compose.py` modules
+
 ## [0.9.0] - 2026-03-09
 
 ### Added
@@ -250,7 +270,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Rwx-G/Buncker/compare/v0.9.0...v1.0.0
 [0.9.0]: https://github.com/Rwx-G/Buncker/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Rwx-G/Buncker/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Rwx-G/Buncker/compare/v0.7.0...v0.8.0
