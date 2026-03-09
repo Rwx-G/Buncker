@@ -375,6 +375,7 @@ references as in Approach 1.
 | `--output <path>` | Output directory for `fetch` response |
 | `--parallelism N` | Parallel downloads for `fetch` (default: 4) |
 | `--older-than Nd` | Cache clean threshold (default: `30d`) |
+| `--deb <path>` | Include a `.deb` update file in the `fetch` response |
 
 ## Maintenance
 
@@ -433,12 +434,16 @@ sudo journalctl -u buncker -f
 
 ### Mnemonic storage (`/etc/buncker/env`)
 
-`buncker setup` saves the mnemonic to `/etc/buncker/env` (mode 0600,
-owned by root) so the systemd service can restart without manual
-re-entry. On sensitive deployments, consider additional protections:
+`buncker setup` encrypts the mnemonic with a PBKDF2-derived key from
+`/etc/machine-id` and stores the ciphertext as `BUNCKER_MNEMONIC_ENC=<base64>`
+in `/etc/buncker/env` (mode 0600, owned by root). The daemon decrypts it
+automatically on startup. This prevents direct exposure if the file is
+read by an attacker without access to the machine-id.
+
+On sensitive deployments, consider additional protections:
 
 - **LUKS encryption** - place the buncker data directory on a LUKS
-  encrypted partition so the mnemonic is protected at rest
+  encrypted partition for full at-rest protection
 - **TPM-backed encryption** - use `systemd-creds` or `clevis` to seal
   `/etc/buncker/env` to the machine's TPM, so it can only be decrypted
   on that specific host
@@ -446,6 +451,23 @@ re-entry. On sensitive deployments, consider additional protections:
   stdin on each daemon start (set `BUNCKER_MNEMONIC` env or pipe it).
   This provides the strongest protection but requires manual intervention
   on every restart
+
+### Backup and recovery
+
+Buncker state consists of the blob store and configuration files. To back up:
+
+```bash
+# Back up store and config
+rsync -a /var/lib/buncker/ /backup/buncker-store/
+rsync -a /etc/buncker/ /backup/buncker-config/
+```
+
+To restore, copy the files back and restart the daemon.
+
+**Mnemonic recovery**: if the mnemonic is lost and `/etc/buncker/env` is
+unavailable, the only option is `buncker rotate-keys` to generate a new
+mnemonic. There is no way to extract the original mnemonic from the config.
+After rotation, re-pair the online machine with `buncker-fetch pair`.
 
 ### OCI endpoints (`/v2/*`) are unauthenticated
 
@@ -528,6 +550,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines
 | Security hardening docs | Document `/etc/buncker/env` encryption recommendations and `/v2/*` unauthenticated access risks | Done |
 | Quick start with `prepare` | Feature `buncker prepare` in main README workflow instead of separate analyze + generate-manifest | Done |
 | Docker Compose support | `buncker analyze --compose docker-compose.yml` to extract all images from multi-service projects | Planned |
+| .deb GPG signature verification | Verify GPG signature on `.deb` updates included in transfer responses before installation | Planned |
+| Log rotation | Built-in log rotation policy or logrotate config for `/var/log/buncker/` | Planned |
 | buncker-fetch on Windows | PyInstaller binary or WSL2 documentation for online-side Windows operators | Planned |
 
 ## License

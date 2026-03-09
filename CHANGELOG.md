@@ -22,16 +22,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Manifest auto-refresh: `buncker-fetch` tracks manifest digests across fetches and warns when upstream content changes
 - Dockerfile ARG substitution now supports `${VAR:-default}` and `${VAR:+replacement}` syntax
 - Security hardening documentation (mnemonic encryption, `/v2/*` risks, admin API protections)
+- Mnemonic at-rest encryption using machine-id derived AES key (`BUNCKER_MNEMONIC_ENC` in `/etc/buncker/env`)
+- `buncker-fetch fetch --deb <path>` flag to bundle a `.deb` update in the encrypted response
+- `.deb` auto-extraction on `buncker import`: update files saved to `store/updates/` with notification
 
 ### Fixed
 
 - CA certificate missing `KeyUsage` and `SubjectKeyIdentifier` extensions (Python 3.14 compatibility)
 - Server certificate missing `AuthorityKeyIdentifier` extension
 - `blob_integrity_error` and `metadata_update_failed` logs missing audit fields (client_ip, auth_level, user_agent)
+- Integration test Phase 2 now uses HTTPS URLs and `-k` flag for self-signed certs
+- `procps` added to offline Dockerfile for reliable daemon process management
 
 ### Security
 
 - `/admin/health` accessible with read-only token (same level as `/admin/status`)
+- Mnemonic encrypted at rest with PBKDF2-derived key from `/etc/machine-id` (no longer stored in cleartext)
 
 ## [0.8.1] - 2026-03-08
 
