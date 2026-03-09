@@ -773,7 +773,8 @@ class BunckerHandler(BaseHTTPRequestHandler):
         blob_count = 0
         if blobs_dir.exists():
             blob_count = sum(
-                1 for f in blobs_dir.iterdir()
+                1
+                for f in blobs_dir.iterdir()
                 if f.is_file() and not f.name.startswith(".")
             )
 

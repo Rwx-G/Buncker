@@ -164,10 +164,7 @@ class TestArgs:
     def test_arg_default_not_used_when_set(self, tmp_path):
         """${VAR:-default} uses VAR value when defined."""
         df = tmp_path / "Dockerfile"
-        df.write_text(
-            "ARG VERSION=1.26\n"
-            "FROM nginx:${VERSION:-1.25}\n"
-        )
+        df.write_text("ARG VERSION=1.26\nFROM nginx:${VERSION:-1.25}\n")
 
         images = parse_dockerfile(df)
         assert images[0].tag == "1.26"
@@ -177,18 +174,13 @@ class TestArgs:
         df = tmp_path / "Dockerfile"
         df.write_text("FROM nginx:${VERSION:-1.25}\n")
 
-        images = parse_dockerfile(
-            df, build_args={"VERSION": "1.27"}
-        )
+        images = parse_dockerfile(df, build_args={"VERSION": "1.27"})
         assert images[0].tag == "1.27"
 
     def test_arg_default_empty_string_uses_fallback(self, tmp_path):
         """${VAR:-default} uses fallback when VAR is empty string."""
         df = tmp_path / "Dockerfile"
-        df.write_text(
-            'ARG VERSION=""\n'
-            "FROM nginx:${VERSION:-1.25}\n"
-        )
+        df.write_text('ARG VERSION=""\nFROM nginx:${VERSION:-1.25}\n')
 
         images = parse_dockerfile(df)
         assert images[0].tag == "1.25"
@@ -196,10 +188,7 @@ class TestArgs:
     def test_arg_replacement_when_set(self, tmp_path):
         """${VAR:+replacement} uses replacement when VAR is set."""
         df = tmp_path / "Dockerfile"
-        df.write_text(
-            "ARG USE_ALPINE=yes\n"
-            "FROM ${USE_ALPINE:+alpine}:3.19\n"
-        )
+        df.write_text("ARG USE_ALPINE=yes\nFROM ${USE_ALPINE:+alpine}:3.19\n")
 
         images = parse_dockerfile(df)
         assert images[0].repository == "library/alpine"
@@ -253,9 +242,7 @@ class TestPlatform:
 
     def test_platform_with_variant(self, tmp_path):
         df = tmp_path / "Dockerfile"
-        df.write_text(
-            "FROM --platform=linux/arm/v7 nginx:1.25\n"
-        )
+        df.write_text("FROM --platform=linux/arm/v7 nginx:1.25\n")
 
         images = parse_dockerfile(df)
 

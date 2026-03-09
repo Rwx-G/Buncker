@@ -787,9 +787,7 @@ class TestAuditTrail:
             # (status endpoint does not log with _request_meta, only
             # action endpoints like analyze/import/gc do)
             # But we can verify the debug http_request was logged
-            handler_records = [
-                r for r in caplog.records if r.name == "buncker.handler"
-            ]
+            handler_records = [r for r in caplog.records if r.name == "buncker.handler"]
             assert len(handler_records) >= 1
         finally:
             srv.stop()

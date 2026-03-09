@@ -298,9 +298,7 @@ class TestManifestAutoRefresh:
 
         cache_path = tmp_path / "cache" / "manifest-digests.json"
         img = "docker.io/library/nginx:latest/linux/amd64"
-        with patch(
-            "buncker_fetch.__main__._DIGEST_CACHE_PATH", cache_path
-        ):
+        with patch("buncker_fetch.__main__._DIGEST_CACHE_PATH", cache_path):
             log = MagicMock()
             _check_manifest_changed(img, "sha256:abc123", log)
 
@@ -317,9 +315,7 @@ class TestManifestAutoRefresh:
 
         cache_path = tmp_path / "cache" / "manifest-digests.json"
         img = "docker.io/library/nginx:latest/linux/amd64"
-        with patch(
-            "buncker_fetch.__main__._DIGEST_CACHE_PATH", cache_path
-        ):
+        with patch("buncker_fetch.__main__._DIGEST_CACHE_PATH", cache_path):
             log = MagicMock()
             _check_manifest_changed(img, "sha256:abc123", log)
             _check_manifest_changed(img, "sha256:abc123", log)
@@ -331,9 +327,7 @@ class TestManifestAutoRefresh:
 
         cache_path = tmp_path / "cache" / "manifest-digests.json"
         img = "docker.io/library/nginx:latest/linux/amd64"
-        with patch(
-            "buncker_fetch.__main__._DIGEST_CACHE_PATH", cache_path
-        ):
+        with patch("buncker_fetch.__main__._DIGEST_CACHE_PATH", cache_path):
             log = MagicMock()
             _check_manifest_changed(img, "sha256:old", log)
             _check_manifest_changed(img, "sha256:new", log)
@@ -352,9 +346,7 @@ class TestManifestAutoRefresh:
         )
 
         cache_path = tmp_path / "cache" / "manifest-digests.json"
-        with patch(
-            "buncker_fetch.__main__._DIGEST_CACHE_PATH", cache_path
-        ):
+        with patch("buncker_fetch.__main__._DIGEST_CACHE_PATH", cache_path):
             _save_digest_cache({"key1": "sha256:aaa"})
             loaded = _load_digest_cache()
             assert loaded == {"key1": "sha256:aaa"}

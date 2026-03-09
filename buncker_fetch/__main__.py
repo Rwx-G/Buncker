@@ -502,9 +502,7 @@ def _load_digest_cache() -> dict[str, str]:
 def _save_digest_cache(cache: dict[str, str]) -> None:
     """Save the manifest digest cache to disk."""
     _DIGEST_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _DIGEST_CACHE_PATH.write_text(
-        json.dumps(cache, indent=2), encoding="utf-8"
-    )
+    _DIGEST_CACHE_PATH.write_text(json.dumps(cache, indent=2), encoding="utf-8")
 
 
 def _check_manifest_changed(

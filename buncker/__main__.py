@@ -883,9 +883,7 @@ def _cmd_proxy(args: argparse.Namespace) -> None:
 
             # Show impact report before executing
             if digests:
-                impact = _admin_post(
-                    f"{base}/admin/gc/impact", {"digests": digests}
-                )
+                impact = _admin_post(f"{base}/admin/gc/impact", {"digests": digests})
                 affected = impact.get("affected_images", 0)
                 if affected > 0:
                     print(
@@ -903,9 +901,7 @@ def _cmd_proxy(args: argparse.Namespace) -> None:
             if not getattr(args, "yes", False):
                 count = len(digests) if digests else "all reported"
                 try:
-                    answer = input(
-                        f"Delete {count} blob(s)? [y/N] "
-                    ).strip().lower()
+                    answer = input(f"Delete {count} blob(s)? [y/N] ").strip().lower()
                 except EOFError:
                     answer = ""
                 if answer != "y":

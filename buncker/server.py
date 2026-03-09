@@ -134,9 +134,7 @@ class BunckerServer:
         if self._tls_cert and self._tls_key:
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             ctx.load_cert_chain(self._tls_cert, self._tls_key)
-            self._server.socket = ctx.wrap_socket(
-                self._server.socket, server_side=True
-            )
+            self._server.socket = ctx.wrap_socket(self._server.socket, server_side=True)
 
         self._start_time = time.time()
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)

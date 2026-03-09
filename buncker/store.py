@@ -272,14 +272,16 @@ class Store:
                 except StoreError:
                     pass
 
-            impact.append({
-                "image": f"{registry}/{repository}:{tag}" if tag else str(rel),
-                "platform": platform,
-                "missing_blobs": affected,
-                "missing_count": len(affected),
-                "total_blobs": len(needed),
-                "missing_size": missing_size,
-            })
+            impact.append(
+                {
+                    "image": f"{registry}/{repository}:{tag}" if tag else str(rel),
+                    "platform": platform,
+                    "missing_blobs": affected,
+                    "missing_count": len(affected),
+                    "total_blobs": len(needed),
+                    "missing_size": missing_size,
+                }
+            )
 
         return impact
 

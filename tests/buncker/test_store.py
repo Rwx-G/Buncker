@@ -442,9 +442,7 @@ class TestGcImpactReport:
         manifest = {
             "schemaVersion": 2,
             "config": {"digest": blobs[0], "size": 100} if blobs else {},
-            "layers": [
-                {"digest": d, "size": 200} for d in blobs[1:]
-            ],
+            "layers": [{"digest": d, "size": 200} for d in blobs[1:]],
         }
         (manifest_dir / platform_file).write_text(
             json.dumps(manifest), encoding="utf-8"
@@ -461,7 +459,11 @@ class TestGcImpactReport:
         digest = _digest(blob_data)
         store.import_blob(blob_data, digest)
         self._make_manifest(
-            store, "docker.io", "library/alpine", "3.19", "linux/amd64",
+            store,
+            "docker.io",
+            "library/alpine",
+            "3.19",
+            "linux/amd64",
             [digest],
         )
 
@@ -480,7 +482,11 @@ class TestGcImpactReport:
         store.import_blob(layer_data, layer_digest)
 
         self._make_manifest(
-            store, "docker.io", "library/nginx", "1.25", "linux/amd64",
+            store,
+            "docker.io",
+            "library/nginx",
+            "1.25",
+            "linux/amd64",
             [config_digest, layer_digest],
         )
 
@@ -499,11 +505,19 @@ class TestGcImpactReport:
 
         # Two images share the same blob
         self._make_manifest(
-            store, "docker.io", "library/alpine", "3.19", "linux/amd64",
+            store,
+            "docker.io",
+            "library/alpine",
+            "3.19",
+            "linux/amd64",
             [shared_digest],
         )
         self._make_manifest(
-            store, "docker.io", "library/debian", "12", "linux/amd64",
+            store,
+            "docker.io",
+            "library/debian",
+            "12",
+            "linux/amd64",
             [shared_digest],
         )
 
