@@ -8,8 +8,8 @@
   <img src="https://img.shields.io/badge/python-%3E%3D3.11-3776AB.svg?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/platform-Debian%2FUbuntu-A81D33.svg?logo=debian&logoColor=white" alt="Platform">
   <img src="https://img.shields.io/badge/packaging-.deb-orange.svg" alt="Packaging">
-  <img src="https://img.shields.io/badge/status-v0.8.1-brightgreen.svg" alt="Status">
-  <img src="https://img.shields.io/badge/coverage-%E2%89%A580%25-brightgreen.svg" alt="Coverage">
+  <img src="https://img.shields.io/badge/status-v0.9.0-brightgreen.svg" alt="Status">
+  <img src="https://img.shields.io/badge/coverage-%E2%89%A590%25-brightgreen.svg" alt="Coverage">
 </p>
 
 ---
@@ -74,10 +74,10 @@ Download the latest `.deb` files from [GitHub Releases](https://github.com/Rwx-G
 
 ```bash
 # Offline machine
-sudo dpkg -i buncker_0.8.1_all.deb
+sudo dpkg -i buncker_0.9.0_all.deb
 
 # Online machine
-sudo dpkg -i buncker-fetch_0.8.1_all.deb
+sudo dpkg -i buncker-fetch_0.9.0_all.deb
 ```
 
 If dependencies are missing, fix them with:
@@ -140,12 +140,17 @@ without manual re-entry.
 
 The operator works directly on the buncker server. Transfers go through USB.
 
-**1. Analyze a Dockerfile and generate a transfer request**
+**1. Prepare a transfer request from a Dockerfile**
 
 ```bash
-buncker analyze ./Dockerfile --build-arg NODE_VERSION=20
-buncker generate-manifest --output /media/usb/
+buncker prepare ./Dockerfile --build-arg NODE_VERSION=20 --output /media/usb/
+# Combines analyze + generate-manifest in one step
 ```
+
+This analyzes the Dockerfile, identifies missing layers, and writes the
+encrypted transfer request to the USB drive in a single command.
+You can also run `buncker analyze` and `buncker generate-manifest` separately
+if you need to inspect the analysis before generating the request.
 
 **2. Online machine - pair and fetch**
 
@@ -328,8 +333,9 @@ references as in Approach 1.
 | `buncker generate-manifest` | Generate an encrypted transfer request |
 | `buncker import [file.tar.enc]` | Import an encrypted transfer response (auto-scans `transfer_path` if omitted, `--cleanup` deletes file after success) |
 | `buncker status` | Show registry status (blob count, store size) |
+| `buncker verify` | Re-hash all blobs and detect silent corruption (bit-rot) |
 | `buncker gc --report` | List inactive blobs eligible for garbage collection |
-| `buncker gc --execute` | Delete reported inactive blobs |
+| `buncker gc --execute` | Delete reported inactive blobs (requires `--yes` or interactive confirmation) |
 | `buncker rotate-keys` | Generate a new mnemonic and deprecate old keys |
 | `buncker export-ca` | Print CA certificate to stdout (TLS mode only) |
 | `buncker api-setup` | Generate API tokens and activate TLS for LAN access |
@@ -369,6 +375,7 @@ references as in Approach 1.
 | `--output <path>` | Output directory for `fetch` response |
 | `--parallelism N` | Parallel downloads for `fetch` (default: 4) |
 | `--older-than Nd` | Cache clean threshold (default: `30d`) |
+| `--deb <path>` | Include a `.deb` update file in the `fetch` response |
 
 ## Maintenance
 
@@ -423,6 +430,72 @@ sudo tail -f /var/log/buncker/buncker.log
 sudo journalctl -u buncker -f
 ```
 
+## Security Hardening
+
+### Mnemonic storage (`/etc/buncker/env`)
+
+`buncker setup` encrypts the mnemonic with a PBKDF2-derived key from
+`/etc/machine-id` and stores the ciphertext as `BUNCKER_MNEMONIC_ENC=<base64>`
+in `/etc/buncker/env` (mode 0600, owned by root). The daemon decrypts it
+automatically on startup. This prevents direct exposure if the file is
+read by an attacker without access to the machine-id.
+
+On sensitive deployments, consider additional protections:
+
+- **LUKS encryption** - place the buncker data directory on a LUKS
+  encrypted partition for full at-rest protection
+- **TPM-backed encryption** - use `systemd-creds` or `clevis` to seal
+  `/etc/buncker/env` to the machine's TPM, so it can only be decrypted
+  on that specific host
+- **Manual entry** - remove `/etc/buncker/env` and enter the mnemonic via
+  stdin on each daemon start (set `BUNCKER_MNEMONIC` env or pipe it).
+  This provides the strongest protection but requires manual intervention
+  on every restart
+
+### Backup and recovery
+
+Buncker state consists of the blob store and configuration files. To back up:
+
+```bash
+# Back up store and config
+rsync -a /var/lib/buncker/ /backup/buncker-store/
+rsync -a /etc/buncker/ /backup/buncker-config/
+```
+
+To restore, copy the files back and restart the daemon.
+
+**Mnemonic recovery**: if the mnemonic is lost and `/etc/buncker/env` is
+unavailable, the only option is `buncker rotate-keys` to generate a new
+mnemonic. There is no way to extract the original mnemonic from the config.
+After rotation, re-pair the online machine with `buncker-fetch pair`.
+
+### OCI endpoints (`/v2/*`) are unauthenticated
+
+The OCI Distribution API endpoints (`/v2/`, `/v2/<name>/manifests/`,
+`/v2/<name>/blobs/`) are always unauthenticated, even when API auth is
+enabled. This is by design - Docker clients need direct access to pull
+images without Bearer token configuration.
+
+**Implications:**
+
+- Any machine on the offline LAN can pull images from buncker
+- Image content is not confidential in most air-gapped scenarios (the
+  threat model protects integrity and provenance, not secrecy)
+- If you need to restrict OCI access, use network-level controls
+  (firewall rules, VLAN segmentation) to limit which hosts can reach
+  port 5000
+
+### Admin API protection
+
+When API auth is enabled (`buncker api-setup`):
+
+- TLS is mandatory (the daemon refuses to start without it)
+- Admin endpoints require the admin token (analyze, import, GC execute)
+- Read-only endpoints accept either token (status, logs, health, GC report)
+- Token values are never logged (only `auth_level` appears in audit trail)
+- All admin API calls are logged with `client_ip`, `auth_level`, and
+  `user_agent` for forensic review
+
 ## Troubleshooting
 
 | Problem | Cause | Solution |
@@ -465,14 +538,21 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| Import cleanup flag | `--cleanup` flag on `buncker import` to delete .tar.enc after successful import | Done |
-| Streamlined `api-setup` | Auto-export ca.pem to `/etc/buncker/ca.pem` and display cert fingerprint during setup | Done |
-| Disk space in `status` | Show store disk usage and available space in `buncker status` and `/admin/status` | Done |
-| Health-check endpoint | `/admin/health` returning store integrity, cert expiry, and disk space | Planned |
-| Store integrity check | `buncker verify` command to re-hash all blobs and detect silent corruption (bit-rot) | Planned |
-| GC impact report | `gc --report` shows which images become non-pullable if candidates are deleted | Planned |
-| Fetch rate limiting | Auto-pace blob downloads based on registry `RateLimit-*` headers | Planned |
-| Manifest auto-refresh | buncker-fetch re-downloads manifests on every fetch and warns if upstream digest changed | Planned |
+| API auth & LAN clients | Bearer tokens (admin + readonly), TLS, endpoint access control, audit trail | Done |
+| Remote operations | curl-based analyze, generate-manifest download, PUT streaming import with resume | Done |
+| Health-check endpoint | `/admin/health` returning store integrity, cert expiry, and disk space | Done |
+| Store integrity check | `buncker verify` command to re-hash all blobs and detect silent corruption (bit-rot) | Done |
+| GC impact report | `gc --report` shows which images become non-pullable if candidates are deleted | Done |
+| GC execute confirmation | `gc --execute` requires `--yes` flag or interactive confirmation to prevent accidents | Done |
+| Fetch rate limiting | Auto-pace blob downloads based on registry `RateLimit-*` headers | Done |
+| Manifest auto-refresh | buncker-fetch re-downloads manifests on every fetch and warns if upstream digest changed | Done |
+| Resolver ARG edge cases | Support for `${VAR:-default}` and `${VAR:+replacement}` syntax, complex `--platform` patterns | Done |
+| Security hardening docs | Document `/etc/buncker/env` encryption recommendations and `/v2/*` unauthenticated access risks | Done |
+| Quick start with `prepare` | Feature `buncker prepare` in main README workflow instead of separate analyze + generate-manifest | Done |
+| Docker Compose support | `buncker analyze --compose docker-compose.yml` to extract all images from multi-service projects | Planned |
+| .deb GPG signature verification | Verify GPG signature on `.deb` updates included in transfer responses before installation | Planned |
+| Log rotation | Built-in log rotation policy or logrotate config for `/var/log/buncker/` | Planned |
+| buncker-fetch on Windows | PyInstaller binary or WSL2 documentation for online-side Windows operators | Planned |
 
 ## License
 

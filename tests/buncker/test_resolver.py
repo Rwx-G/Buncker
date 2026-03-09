@@ -153,6 +153,54 @@ class TestArgs:
         with pytest.raises(ResolverError, match="not defined"):
             parse_dockerfile(df)
 
+    def test_arg_default_fallback(self, tmp_path):
+        """${VAR:-default} uses fallback when VAR is unset."""
+        df = tmp_path / "Dockerfile"
+        df.write_text("FROM nginx:${VERSION:-1.25}\n")
+
+        images = parse_dockerfile(df)
+        assert images[0].tag == "1.25"
+
+    def test_arg_default_not_used_when_set(self, tmp_path):
+        """${VAR:-default} uses VAR value when defined."""
+        df = tmp_path / "Dockerfile"
+        df.write_text("ARG VERSION=1.26\nFROM nginx:${VERSION:-1.25}\n")
+
+        images = parse_dockerfile(df)
+        assert images[0].tag == "1.26"
+
+    def test_arg_default_with_build_arg_override(self, tmp_path):
+        """${VAR:-default} uses build-arg when provided."""
+        df = tmp_path / "Dockerfile"
+        df.write_text("FROM nginx:${VERSION:-1.25}\n")
+
+        images = parse_dockerfile(df, build_args={"VERSION": "1.27"})
+        assert images[0].tag == "1.27"
+
+    def test_arg_default_empty_string_uses_fallback(self, tmp_path):
+        """${VAR:-default} uses fallback when VAR is empty string."""
+        df = tmp_path / "Dockerfile"
+        df.write_text('ARG VERSION=""\nFROM nginx:${VERSION:-1.25}\n')
+
+        images = parse_dockerfile(df)
+        assert images[0].tag == "1.25"
+
+    def test_arg_replacement_when_set(self, tmp_path):
+        """${VAR:+replacement} uses replacement when VAR is set."""
+        df = tmp_path / "Dockerfile"
+        df.write_text("ARG USE_ALPINE=yes\nFROM ${USE_ALPINE:+alpine}:3.19\n")
+
+        images = parse_dockerfile(df)
+        assert images[0].repository == "library/alpine"
+
+    def test_arg_replacement_when_unset(self, tmp_path):
+        """${VAR:+replacement} returns empty when VAR is unset."""
+        df = tmp_path / "Dockerfile"
+        df.write_text("FROM nginx${SUFFIX:+-slim}:1.25\n")
+
+        images = parse_dockerfile(df)
+        assert images[0].repository == "library/nginx"
+
 
 class TestPlatform:
     """Tests for --platform flag."""
@@ -166,6 +214,39 @@ class TestPlatform:
         assert images[0].platform == "linux/arm64"
         assert images[0].repository == "library/nginx"
         assert images[0].tag == "1.25"
+
+    def test_platform_with_arg_variable(self, tmp_path):
+        df = tmp_path / "Dockerfile"
+        df.write_text(
+            "ARG TARGETPLATFORM=linux/amd64\n"
+            "FROM --platform=${TARGETPLATFORM} nginx:1.25\n"
+        )
+
+        images = parse_dockerfile(df)
+
+        assert images[0].platform == "linux/amd64"
+
+    def test_platform_arg_override(self, tmp_path):
+        df = tmp_path / "Dockerfile"
+        df.write_text(
+            "ARG TARGETPLATFORM=linux/amd64\n"
+            "FROM --platform=${TARGETPLATFORM} nginx:1.25\n"
+        )
+
+        images = parse_dockerfile(
+            df,
+            build_args={"TARGETPLATFORM": "linux/arm64"},
+        )
+
+        assert images[0].platform == "linux/arm64"
+
+    def test_platform_with_variant(self, tmp_path):
+        df = tmp_path / "Dockerfile"
+        df.write_text("FROM --platform=linux/arm/v7 nginx:1.25\n")
+
+        images = parse_dockerfile(df)
+
+        assert images[0].platform == "linux/arm/v7"
 
 
 class TestDigest:
@@ -513,3 +594,43 @@ class TestResolveDockerfile:
 
         # CONFIG_D=100 + LAYER_A=1000 + LAYER_B=2000
         assert result.total_missing_size == 3100
+
+    def test_find_layer_info_not_found(self):
+        """_find_layer_info returns {} for unknown digest."""
+        from buncker.resolver import _find_layer_info
+
+        manifest = {
+            "config": {"digest": "sha256:config", "size": 100},
+            "layers": [{"digest": "sha256:layer1", "size": 200}],
+        }
+        assert _find_layer_info(manifest, "sha256:unknown") == {}
+
+    def test_build_resolved_no_tag_no_digest(self):
+        """_build_resolved with no tag and no digest returns base only."""
+        from buncker.resolver import _build_resolved
+
+        result = _build_resolved("docker.io", "library/x", None, None)
+        assert result == "docker.io/library/x"
+
+    def test_deduplication_skips_already_seen(self, tmp_path):
+        """Two identical FROM lines don't produce duplicate missing blobs."""
+        df = tmp_path / "Dockerfile"
+        df.write_text("FROM nginx:1.25\nFROM nginx:1.25\n")
+
+        cache = FakeCache(
+            {
+                "docker.io/library/nginx:1.25:linux/amd64": MANIFEST_NGINX,
+            }
+        )
+        store = FakeStore()
+
+        result = resolve_dockerfile(
+            df,
+            store=store,
+            registry_client=cache,
+        )
+
+        # Blobs counted only once despite 2 FROM lines
+        all_digests = [b["digest"] for b in result.missing_blobs]
+        assert all_digests.count(LAYER_A) == 1
+        assert all_digests.count(LAYER_B) == 1

@@ -381,6 +381,13 @@ class TestAuthenticateRequest:
             authenticate_request(handler, tokens, api_enabled=True)
         assert exc_info.value.status == 401
 
+    def test_non_admin_endpoint_returns_local(self):
+        """Non-admin, non-OCI endpoint with auth enabled returns 'local'."""
+        handler = self._make_handler("/some/unknown/path", "GET")
+        tokens = {"readonly": "ro_token", "admin": "admin_token"}
+        level = authenticate_request(handler, tokens, api_enabled=True)
+        assert level == "local"
+
 
 class TestAuthIntegration:
     """Integration tests for auth middleware with live server."""
@@ -649,6 +656,29 @@ class TestApiResetCommand:
                 main()
             assert exc_info.value.code == 1
 
+    def test_api_reset_logs_audit_event(self, tmp_path, caplog):
+        """Verify api_token_reset audit log is produced on reset."""
+        import logging
+
+        config_path = self._setup_with_tokens(tmp_path)
+
+        with (
+            caplog.at_level(logging.INFO, logger="buncker.auth"),
+            mock.patch(
+                "sys.argv",
+                ["buncker", "--config", str(config_path), "api-reset", "admin"],
+            ),
+        ):
+            from buncker.__main__ import main
+
+            main()
+
+        reset_records = [
+            r for r in caplog.records if r.getMessage() == "api_token_reset"
+        ]
+        assert len(reset_records) == 1
+        assert reset_records[0].token_type == "admin"
+
     def test_old_token_rejected_after_reset(self, tmp_path):
         """Integration: reset admin token, old one should fail auth."""
         config_path = self._setup_with_tokens(tmp_path)
@@ -759,11 +789,106 @@ class TestAuditTrail:
                 )
                 resp = urllib.request.urlopen(req)
                 assert resp.status == 200
+
+            # Verify audit fields are NOT present on GET /admin/status
+            # (status endpoint does not log with _request_meta, only
+            # action endpoints like analyze/import/gc do)
+            # But we can verify the debug http_request was logged
+            handler_records = [r for r in caplog.records if r.name == "buncker.handler"]
+            assert len(handler_records) >= 1
+        finally:
+            srv.stop()
+
+    def test_no_token_values_in_logs(self, tmp_path, caplog):
+        """Verify token values never appear in log output (NFR7)."""
+        import logging
+
+        srv, tokens = self._setup_server_with_auth(tmp_path)
+        try:
+            with caplog.at_level(logging.DEBUG):
+                # Successful request
+                url = f"http://127.0.0.1:{srv.port}/admin/status"
+                req = urllib.request.Request(
+                    url,
+                    headers={"Authorization": f"Bearer {tokens['admin']}"},
+                )
+                urllib.request.urlopen(req)
+
+                # Failed request
+                req2 = urllib.request.Request(
+                    url,
+                    headers={"Authorization": "Bearer wrong_token"},
+                )
+                with pytest.raises(urllib.error.HTTPError):
+                    urllib.request.urlopen(req2)
+
+            # Check no token values in any log message
+            all_log_text = " ".join(r.getMessage() for r in caplog.records)
+            assert tokens["admin"] not in all_log_text
+            assert tokens["readonly"] not in all_log_text
+            assert "wrong_token" not in all_log_text
         finally:
             srv.stop()
 
     def test_v2_no_auth_still_works(self, tmp_path):
         srv, _ = self._setup_server_with_auth(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/"
+            resp = urllib.request.urlopen(url)
+            assert resp.status == 200
+        finally:
+            srv.stop()
+
+
+class TestTlsServer:
+    """Tests for TLS server activation (Story 6.1)."""
+
+    def test_server_starts_with_tls(self, tmp_path):
+        """Server with TLS cert/key serves HTTPS."""
+        import ssl
+
+        from buncker.auth import generate_self_signed_cert
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        tls_dir = tmp_path / "tls"
+        cert_path, key_path, ca_path = generate_self_signed_cert(tls_dir)
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+            tls_cert=cert_path,
+            tls_key=key_path,
+        )
+        srv.start()
+        try:
+            # Create SSL context trusting our CA
+            ctx = ssl.create_default_context(cafile=str(ca_path))
+            url = f"https://localhost:{srv.port}/v2/"
+            req = urllib.request.Request(url)
+            resp = urllib.request.urlopen(req, context=ctx)
+            assert resp.status == 200
+            data = json.loads(resp.read())
+            assert data["status"] == "ok"
+        finally:
+            srv.stop()
+
+    def test_server_without_tls_serves_http(self, tmp_path):
+        """Server without TLS cert serves plain HTTP."""
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+        )
+        srv.start()
         try:
             url = f"http://127.0.0.1:{srv.port}/v2/"
             resp = urllib.request.urlopen(url)

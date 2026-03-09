@@ -197,6 +197,17 @@ def import_response(
         if manifest_cache is not None:
             _cache_manifests_from_response(tmp_path, manifest_cache)
 
+        # Extract .deb for auto-update (FR15)
+        deb_file = _extract_deb_update(tmp_path, store.path)
+
+    result = {
+        "imported": imported,
+        "skipped": skipped,
+        "errors": errors_list,
+    }
+    if deb_file:
+        result["update_deb"] = str(deb_file)
+
     _log.info(
         "transfer_imported",
         extra={
@@ -204,14 +215,34 @@ def import_response(
             "skipped": skipped,
             "errors": len(errors_list),
             "source": str(response_path),
+            "update_deb": str(deb_file) if deb_file else None,
         },
     )
 
-    return {
-        "imported": imported,
-        "skipped": skipped,
-        "errors": errors_list,
-    }
+    return result
+
+
+def _extract_deb_update(extract_dir: Path, store_path: Path) -> Path | None:
+    """Extract .deb file from response for offline auto-update (FR15).
+
+    Copies any .deb file found at the root of the tar to
+    ``{store_path}/updates/`` so the operator can install it.
+
+    Returns:
+        Path to the extracted .deb, or None if not found.
+    """
+    for candidate in extract_dir.iterdir():
+        if candidate.is_file() and candidate.name.endswith(".deb"):
+            updates_dir = store_path / "updates"
+            updates_dir.mkdir(parents=True, exist_ok=True)
+            dest = updates_dir / candidate.name
+            dest.write_bytes(candidate.read_bytes())
+            _log.info(
+                "transfer_deb_extracted",
+                extra={"deb": candidate.name, "dest": str(dest)},
+            )
+            return dest
+    return None
 
 
 def _cache_manifests_from_response(

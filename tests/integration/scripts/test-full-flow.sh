@@ -111,8 +111,20 @@ bold "  -- Step 1: Setup buncker --"
 SETUP_OUTPUT=$(exec_offline buncker setup 2>&1) || true
 echo "$SETUP_OUTPUT"
 
-# Extract mnemonic from env file (more reliable than parsing output)
-MNEMONIC=$(exec_offline bash -c "cat /etc/buncker/env | sed 's/BUNCKER_MNEMONIC=//'")
+# Extract mnemonic from env file (supports encrypted and cleartext formats)
+MNEMONIC=$(exec_offline python3 -c "
+import sys, re
+sys.path.insert(0, '/usr/lib/buncker')
+env = open('/etc/buncker/env').read().strip()
+m = re.match(r'BUNCKER_MNEMONIC_ENC=(.*)', env)
+if m:
+    from shared.crypto import decrypt_env_value
+    print(decrypt_env_value(m.group(1)))
+else:
+    m = re.match(r'BUNCKER_MNEMONIC=(.*)', env)
+    if m:
+        print(m.group(1))
+")
 echo "  Mnemonic: $MNEMONIC"
 
 check "buncker setup created config" \
@@ -230,30 +242,30 @@ RO_TOKEN=$(exec_offline python3 -c "import json; print(json.load(open('/etc/bunc
 echo "  Admin token: ${ADMIN_TOKEN:0:10}..."
 echo "  RO token: ${RO_TOKEN:0:10}..."
 
-# Restart daemon with auth enabled
+# Restart daemon with auth enabled (now serves HTTPS)
 exec_offline bash -c "nohup bash -c 'BUNCKER_MNEMONIC=\"$MNEMONIC\" buncker serve' > /tmp/buncker-auth.log 2>&1 &"
 sleep 3
 
-check "daemon restarted" \
-    exec_offline curl -sf http://127.0.0.1:5000/v2/
+check "daemon restarted (HTTPS)" \
+    exec_offline curl -ksf https://127.0.0.1:5000/v2/
 
 # Test auth from client container (LAN client via curl)
 bold "  -- Step 2: Test auth enforcement from LAN client --"
-BUNCKER_URL="http://buncker-offline:5000"
+BUNCKER_URL="https://buncker-offline:5000"
 
 # No token -> 401
-HTTP_CODE=$(exec_client curl -s -o /dev/null -w "%{http_code}" "$BUNCKER_URL/admin/status")
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" "$BUNCKER_URL/admin/status")
 check "no token -> 401 on /admin/status" \
     test "$HTTP_CODE" = "401"
 
 # RO token -> 200 on status
-HTTP_CODE=$(exec_client curl -s -o /dev/null -w "%{http_code}" \
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" \
     -H "Authorization: Bearer $RO_TOKEN" "$BUNCKER_URL/admin/status")
 check "RO token -> 200 on /admin/status" \
     test "$HTTP_CODE" = "200"
 
 # RO token -> 403 on analyze
-HTTP_CODE=$(exec_client curl -s -o /dev/null -w "%{http_code}" \
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" \
     -X POST -H "Authorization: Bearer $RO_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"dockerfile_content":"FROM scratch\n"}' \
@@ -262,7 +274,7 @@ check "RO token -> 403 on /admin/analyze" \
     test "$HTTP_CODE" = "403"
 
 # OCI /v2/ -> 200 without token
-HTTP_CODE=$(exec_client curl -s -o /dev/null -w "%{http_code}" "$BUNCKER_URL/v2/")
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" "$BUNCKER_URL/v2/")
 check "OCI /v2/ -> 200 without token" \
     test "$HTTP_CODE" = "200"
 
@@ -270,7 +282,7 @@ check "OCI /v2/ -> 200 without token" \
 bold "  -- Step 3: Full LAN client cycle (analyze -> generate -> fetch -> PUT import) --"
 
 # Analyze via content mode
-ANALYZE_RESULT=$(exec_client curl -s \
+ANALYZE_RESULT=$(exec_client curl -ks \
     -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"dockerfile_content":"FROM alpine:3.19\nRUN apk add curl\n"}' \
@@ -279,7 +291,7 @@ echo "  Analyze: $ANALYZE_RESULT"
 check_output "LAN analyze found images" "images" echo "$ANALYZE_RESULT"
 
 # Generate manifest (download encrypted request via curl)
-exec_client bash -c "curl -s \
+exec_client bash -c "curl -ks \
     -X POST -H 'Authorization: Bearer $ADMIN_TOKEN' \
     -H 'Content-Type: application/octet-stream' \
     -H 'Content-Length: 0' \
@@ -307,7 +319,7 @@ CHECKSUM=$(exec_client sha256sum /transfer/lan-response.tar.enc | cut -d' ' -f1)
 echo "  Checksum: sha256:$CHECKSUM"
 
 # PUT without token -> 401
-HTTP_CODE=$(exec_client curl -s -o /dev/null -w "%{http_code}" \
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" \
     -T /transfer/lan-response.tar.enc \
     -H "X-Buncker-Checksum: sha256:$CHECKSUM" \
     "$BUNCKER_URL/admin/import")
@@ -315,7 +327,7 @@ check "PUT import without token -> 401" \
     test "$HTTP_CODE" = "401"
 
 # PUT with wrong checksum -> 400
-HTTP_CODE=$(exec_client curl -s -o /dev/null -w "%{http_code}" \
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" \
     -T /transfer/lan-response.tar.enc \
     -H "Authorization: Bearer $ADMIN_TOKEN" \
     -H "X-Buncker-Checksum: sha256:0000000000000000000000000000000000000000000000000000000000000000" \
@@ -324,7 +336,7 @@ check "PUT import with wrong checksum -> 400" \
     test "$HTTP_CODE" = "400"
 
 # PUT with admin token + correct checksum -> 200
-IMPORT_RESULT=$(exec_client curl -s -w "\n%{http_code}" \
+IMPORT_RESULT=$(exec_client curl -ks -w "\n%{http_code}" \
     -T /transfer/lan-response.tar.enc \
     -H "Authorization: Bearer $ADMIN_TOKEN" \
     -H "X-Buncker-Checksum: sha256:$CHECKSUM" \
@@ -336,7 +348,7 @@ check "PUT import with admin token -> 200" \
     test "$HTTP_CODE" = "200"
 
 # Verify status via RO token
-STATUS=$(exec_client curl -s \
+STATUS=$(exec_client curl -ks \
     -H "Authorization: Bearer $RO_TOKEN" \
     "$BUNCKER_URL/admin/status")
 echo "  Status: $STATUS"

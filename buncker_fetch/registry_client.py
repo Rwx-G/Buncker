@@ -50,6 +50,7 @@ _CONNECT_TIMEOUT = 30
 _READ_TIMEOUT = 120
 _MAX_RETRIES = 3
 _BACKOFF_BASE = 1  # 1s, 3s, 9s
+_MAX_RATE_LIMIT_WAIT = 120  # max seconds to wait on 429
 
 _OCI_MANIFEST_TYPES = (
     "application/vnd.oci.image.manifest.v1+json",
@@ -228,6 +229,7 @@ class RegistryClient:
         for attempt in range(_MAX_RETRIES):
             try:
                 response = self._opener.open(req, timeout=_READ_TIMEOUT)
+                _log_rate_limit_headers(response, self.registry)
                 return response.read()
             except urllib.error.HTTPError as exc:
                 if exc.code == 401 and attempt == 0:
@@ -237,13 +239,19 @@ class RegistryClient:
                     continue
                 if exc.code == 429:
                     retry_after = exc.headers.get("Retry-After", "")
+                    wait = _parse_retry_after(retry_after)
                     _log.warning(
                         "registry_rate_limited",
                         extra={
                             "registry": self.registry,
                             "retry_after": retry_after,
+                            "wait_seconds": wait,
+                            "attempt": attempt + 1,
                         },
                     )
+                    if attempt < _MAX_RETRIES - 1 and wait <= _MAX_RATE_LIMIT_WAIT:
+                        time.sleep(wait)
+                        continue
                     raise RegistryError(
                         f"Rate limited by {self.registry}. "
                         f"Retry after {retry_after or 'unknown'}s",
@@ -320,6 +328,60 @@ def load_credentials(config: dict, registry: str) -> dict[str, str] | None:
         return None
 
     return {"username": username, "password": password}
+
+
+def _log_rate_limit_headers(response: object, registry: str) -> None:
+    """Log rate limit headers from successful responses for observability.
+
+    Parses standard RateLimit-* headers (RFC draft) and logs a warning
+    when remaining requests are low.
+    """
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return
+
+    remaining = headers.get("RateLimit-Remaining")
+    limit = headers.get("RateLimit-Limit")
+    reset = headers.get("RateLimit-Reset")
+
+    if remaining is not None:
+        try:
+            remaining_int = int(remaining)
+        except ValueError:
+            return
+        if remaining_int <= 10:
+            _log.warning(
+                "registry_rate_limit_low",
+                extra={
+                    "registry": registry,
+                    "remaining": remaining_int,
+                    "limit": limit or "unknown",
+                    "reset": reset or "unknown",
+                },
+            )
+
+
+def _parse_retry_after(value: str) -> float:
+    """Parse Retry-After header into seconds.
+
+    Supports integer seconds and HTTP-date format.
+    Returns a default of 5s if the value cannot be parsed.
+    """
+    if not value:
+        return 5.0
+    try:
+        return max(1.0, float(value))
+    except ValueError:
+        pass
+    # Try HTTP-date format (RFC 7231)
+    try:
+        from email.utils import parsedate_to_datetime
+
+        target = parsedate_to_datetime(value)
+        delta = (target - target.now(tz=target.tzinfo)).total_seconds()
+        return max(1.0, delta)
+    except Exception:
+        return 5.0
 
 
 def _quote(s: str) -> str:

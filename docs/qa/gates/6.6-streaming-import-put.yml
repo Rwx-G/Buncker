@@ -1,0 +1,15 @@
+schema: 1
+story: '6.6'
+story_title: 'Streaming Import via PUT'
+gate: PASS
+status_reason: 'All ACs met after fixes. Added 3 Content-Range tests: resume partial upload, mismatch offset (RANGE_MISMATCH), invalid format (INVALID_RANGE).'
+reviewer: 'Romain G.'
+updated: '2026-03-09T12:00:00Z'
+top_issues:
+  - id: 'fixed-1'
+    severity: critical
+    description: 'FIXED: Added test_put_content_range_resume, test_put_content_range_mismatch_offset, test_put_content_range_invalid_format.'
+  - id: 'note-1'
+    severity: minor
+    description: 'Checksum header accepts any string after "sha256:" prefix without validating hex format. Invalid hex still rejected at comparison time.'
+waiver: { active: false }

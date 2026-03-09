@@ -22,6 +22,8 @@ __all__ = [
     "decrypt",
     "sign",
     "verify",
+    "encrypt_env_value",
+    "decrypt_env_value",
 ]
 
 
@@ -201,3 +203,96 @@ def verify(data: bytes, hmac_key: bytes, signature: str) -> bool:
     """
     expected = sign(data, hmac_key)
     return _hmac.compare_digest(expected, signature)
+
+
+# --- Environment value encryption (machine-id based) ---
+
+_ENV_KEY_SALT = b"buncker-env-v1"
+_ENV_KEY_ITERATIONS = 100_000
+
+
+def _derive_env_key(machine_id_path: str = "/etc/machine-id") -> bytes:
+    """Derive a 32-byte AES key from the machine identity.
+
+    Uses PBKDF2 with a static salt to derive a key that is unique to
+    this machine. Protects the mnemonic at rest against disk theft and
+    unencrypted backups.
+
+    Args:
+        machine_id_path: Path to the machine-id file.
+
+    Returns:
+        32-byte AES key.
+
+    Raises:
+        CryptoError: If the machine-id file cannot be read.
+    """
+    from pathlib import Path
+
+    mid_path = Path(machine_id_path)
+    if not mid_path.exists():
+        raise CryptoError(
+            f"Cannot derive env key: {machine_id_path} not found. "
+            "Set BUNCKER_MNEMONIC environment variable directly."
+        )
+    machine_id = mid_path.read_text().strip().encode()
+    if not machine_id:
+        raise CryptoError(f"Empty machine-id at {machine_id_path}")
+
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=_ENV_KEY_SALT,
+        iterations=_ENV_KEY_ITERATIONS,
+    )
+    return kdf.derive(machine_id)
+
+
+def encrypt_env_value(
+    value: str,
+    machine_id_path: str = "/etc/machine-id",
+) -> str:
+    """Encrypt a value for storage in the systemd env file.
+
+    Args:
+        value: Plaintext string to encrypt (e.g. mnemonic).
+        machine_id_path: Path to machine-id for key derivation.
+
+    Returns:
+        Base64-encoded ciphertext string.
+    """
+    import base64
+
+    key = _derive_env_key(machine_id_path)
+    ct = encrypt(value.encode(), key)
+    return base64.b64encode(ct).decode()
+
+
+def decrypt_env_value(
+    encrypted_b64: str,
+    machine_id_path: str = "/etc/machine-id",
+) -> str:
+    """Decrypt a value from the systemd env file.
+
+    Args:
+        encrypted_b64: Base64-encoded ciphertext.
+        machine_id_path: Path to machine-id for key derivation.
+
+    Returns:
+        Decrypted plaintext string.
+
+    Raises:
+        CryptoError: If decryption fails (wrong machine or corrupted data).
+    """
+    import base64
+
+    key = _derive_env_key(machine_id_path)
+    ct = base64.b64decode(encrypted_b64)
+    try:
+        return decrypt(ct, key).decode()
+    except CryptoError as err:
+        raise CryptoError(
+            "Failed to decrypt mnemonic from env file. "
+            "This may happen after migrating to a different machine. "
+            "Set BUNCKER_MNEMONIC environment variable directly."
+        ) from err

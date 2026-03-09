@@ -15,7 +15,13 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 
 from buncker.config import load_config, save_config
-from shared.crypto import derive_keys, generate_mnemonic, split_mnemonic
+from shared.crypto import (
+    decrypt_env_value,
+    derive_keys,
+    encrypt_env_value,
+    generate_mnemonic,
+    split_mnemonic,
+)
 from shared.logging import setup_logging
 
 # ANSI color codes
@@ -142,6 +148,14 @@ def main() -> None:
         nargs="*",
         help="Specific digests to GC",
     )
+    sub_gc.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompt for gc --execute",
+    )
+
+    # verify
+    subparsers.add_parser("verify", help="Verify store integrity (re-hash all blobs)")
 
     # rotate-keys
     sub_rotate = subparsers.add_parser("rotate-keys", help="Rotate crypto keys")
@@ -198,6 +212,8 @@ def main() -> None:
         _cmd_rotate_keys(args)
     elif args.command == "export-ca":
         _cmd_export_ca(args)
+    elif args.command == "verify":
+        _cmd_verify(args)
     elif args.command == "api-setup":
         _cmd_api_setup(args)
     elif args.command == "api-show":
@@ -266,10 +282,17 @@ def _cmd_setup(args: argparse.Namespace) -> None:
     }
     save_config(config, config_path)
 
-    # Save mnemonic to env file for systemd
+    # Save mnemonic to env file for systemd (encrypted at rest)
     env_path = config_path.parent / "env"
     env_path.parent.mkdir(parents=True, exist_ok=True)
-    env_path.write_text(f"BUNCKER_MNEMONIC={mnemonic}\n", encoding="utf-8")
+    try:
+        encrypted_mnemonic = encrypt_env_value(mnemonic)
+        env_path.write_text(
+            f"BUNCKER_MNEMONIC_ENC={encrypted_mnemonic}\n", encoding="utf-8"
+        )
+    except Exception:
+        # Fallback to cleartext if machine-id unavailable (dev/test)
+        env_path.write_text(f"BUNCKER_MNEMONIC={mnemonic}\n", encoding="utf-8")
     import contextlib
 
     with contextlib.suppress(OSError):
@@ -321,6 +344,32 @@ def _cmd_setup(args: argparse.Namespace) -> None:
     print(f"  Daemon:  {daemon_status}")
     print()
     print(_c(sep, _DIM))
+
+
+def _cmd_verify(args: argparse.Namespace) -> None:
+    """Verify store integrity by re-hashing all blobs."""
+    config = load_config(args.config)
+    from buncker.store import Store
+
+    store = Store(Path(config["store_path"]))
+    print(f"Verifying store at {config['store_path']}...")
+
+    result = store.verify()
+
+    print(f"  Total blobs:    {result['total']}")
+    print(f"  OK:             {_c(str(result['ok']), _GREEN)}")
+
+    if result["corrupted"] > 0:
+        print(f"  Corrupted:      {_c(str(result['corrupted']), _RED)}")
+        print()
+        print(f"  {_c('CORRUPTED BLOBS:', _RED)}")
+        for digest in result["corrupted_digests"]:
+            print(f"    {digest}")
+        sys.exit(1)
+    else:
+        print(f"  Corrupted:      {_c('0', _GREEN)}")
+        print()
+        print(_c("Store integrity OK.", _GREEN))
 
 
 def _cmd_api_setup(args: argparse.Namespace) -> None:
@@ -616,13 +665,24 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         _check_tls_cert_expiry(config)
 
     # Get mnemonic from env or stdin
-    mnemonic = os.environ.get("BUNCKER_MNEMONIC")
+    # Priority: BUNCKER_MNEMONIC_ENC (encrypted) > BUNCKER_MNEMONIC (cleartext) > stdin
+    mnemonic = None
+    enc_value = os.environ.get("BUNCKER_MNEMONIC_ENC")
+    if enc_value:
+        try:
+            mnemonic = decrypt_env_value(enc_value)
+        except Exception as exc:
+            print(f"Error: failed to decrypt mnemonic from env: {exc}")
+            sys.exit(1)
+    if not mnemonic:
+        mnemonic = os.environ.get("BUNCKER_MNEMONIC")
     if not mnemonic:
         try:
             mnemonic = input("Enter mnemonic: ").strip()
         except EOFError:
             print(
-                "Error: mnemonic required (set BUNCKER_MNEMONIC or provide via stdin)"
+                "Error: mnemonic required"
+                " (set BUNCKER_MNEMONIC_ENC or provide via stdin)"
             )
             sys.exit(1)
 
@@ -662,6 +722,14 @@ def _cmd_serve(args: argparse.Namespace) -> None:
     from buncker.server import BunckerServer
     from buncker.store import Store
 
+    # Resolve TLS cert paths if enabled
+    tls_cert = None
+    tls_key = None
+    if config.get("tls"):
+        tls_dir = Path(config["store_path"]) / "tls"
+        tls_cert = tls_dir / "server.pem"
+        tls_key = tls_dir / "server-key.pem"
+
     store = Store(Path(config["store_path"]))
     server = BunckerServer(
         bind=config.get("bind", "0.0.0.0"),
@@ -673,6 +741,8 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         log_path=Path(config["store_path"]) / "buncker.log",
         api_tokens=api_tokens,
         api_enabled=api_enabled,
+        tls_cert=tls_cert,
+        tls_key=tls_key,
     )
 
     # Handle SIGTERM/SIGINT
@@ -686,7 +756,8 @@ def _cmd_serve(args: argparse.Namespace) -> None:
     signal.signal(signal.SIGINT, _shutdown)
 
     server.start()
-    print(f"Buncker serving on {config.get('bind')}:{config.get('port')}")
+    scheme = "https" if config.get("tls") else "http"
+    print(f"Buncker serving on {scheme}://{config.get('bind')}:{config.get('port')}")
 
     # Block until shutdown signal (cross-platform)
     shutdown_event.wait()
@@ -718,6 +789,20 @@ def _cmd_rotate_keys(args: argparse.Namespace) -> None:
     }
 
     save_config(config, config_path)
+
+    # Update env file with encrypted mnemonic
+    env_path = config_path.parent / "env"
+    try:
+        encrypted_mnemonic = encrypt_env_value(mnemonic)
+        env_path.write_text(
+            f"BUNCKER_MNEMONIC_ENC={encrypted_mnemonic}\n", encoding="utf-8"
+        )
+    except Exception:
+        env_path.write_text(f"BUNCKER_MNEMONIC={mnemonic}\n", encoding="utf-8")
+    import contextlib
+
+    with contextlib.suppress(OSError):
+        env_path.chmod(0o600)
 
     print("Keys rotated successfully.")
     print()
@@ -808,6 +893,16 @@ def _cmd_proxy(args: argparse.Namespace) -> None:
         result = _admin_post_binary(f"{base}/admin/import", file_data)
         print(json.dumps(result, indent=2))
 
+        # Notify about available .deb update (FR15)
+        update_deb = result.get("update_deb")
+        if update_deb:
+            print()
+            print(
+                f"  {_c('UPDATE AVAILABLE:', _BOLD + _YELLOW)} "
+                f"A new .deb was included in this transfer."
+            )
+            print(f"  Install with: sudo dpkg -i {update_deb}")
+
         if getattr(args, "cleanup", False) and result.get("imported", 0) > 0:
             import_file.unlink()
             print(f"Cleaned up: {import_file}")
@@ -833,6 +928,34 @@ def _cmd_proxy(args: argparse.Namespace) -> None:
         if args.execute:
             digests = args.digests or []
             operator = args.operator or "cli"
+
+            # Show impact report before executing
+            if digests:
+                impact = _admin_post(f"{base}/admin/gc/impact", {"digests": digests})
+                affected = impact.get("affected_images", 0)
+                if affected > 0:
+                    print(
+                        f"\n{_c('WARNING:', _YELLOW)} {affected} image(s) will "
+                        "become non-pullable:"
+                    )
+                    for img in impact.get("impact", []):
+                        print(
+                            f"  {img['image']} ({img['platform']}) "
+                            f"- {img['missing_count']}/{img['total_blobs']} blobs lost"
+                        )
+                    print()
+
+            # Require --yes or interactive confirmation
+            if not getattr(args, "yes", False):
+                count = len(digests) if digests else "all reported"
+                try:
+                    answer = input(f"Delete {count} blob(s)? [y/N] ").strip().lower()
+                except EOFError:
+                    answer = ""
+                if answer != "y":
+                    print("Aborted.")
+                    sys.exit(0)
+
             data = {"digests": digests, "operator": operator}
             result = _admin_post(f"{base}/admin/gc/execute", data)
             print(json.dumps(result, indent=2))

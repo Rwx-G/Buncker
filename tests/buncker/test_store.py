@@ -357,3 +357,172 @@ class TestGcExecute:
         messages = [r.message for r in caplog.records]
         assert "gc_candidate" in messages
         assert "gc_executed" in messages
+
+
+class TestStoreVerify:
+    """Tests for Store.verify() - integrity check (bit-rot detection)."""
+
+    def test_verify_empty_store(self, tmp_path):
+        store = Store(tmp_path)
+        result = store.verify()
+        assert result["total"] == 0
+        assert result["ok"] == 0
+        assert result["corrupted"] == 0
+        assert result["corrupted_digests"] == []
+
+    def test_verify_healthy_blobs(self, tmp_path):
+        store = Store(tmp_path)
+        store.import_blob(b"hello", _digest(b"hello"))
+        store.import_blob(b"world", _digest(b"world"))
+
+        result = store.verify()
+        assert result["total"] == 2
+        assert result["ok"] == 2
+        assert result["corrupted"] == 0
+
+    def test_verify_detects_corrupted_blob(self, tmp_path):
+        store = Store(tmp_path)
+        data = b"original content"
+        digest = _digest(data)
+        store.import_blob(data, digest)
+
+        # Corrupt the blob file
+        digest_hex = digest.removeprefix("sha256:")
+        blob_path = tmp_path / "blobs" / "sha256" / digest_hex
+        blob_path.write_bytes(b"corrupted content")
+
+        result = store.verify()
+        assert result["total"] == 1
+        assert result["ok"] == 0
+        assert result["corrupted"] == 1
+        assert digest in result["corrupted_digests"]
+
+    def test_verify_mixed_healthy_and_corrupted(self, tmp_path):
+        store = Store(tmp_path)
+        good_data = b"good blob"
+        bad_data = b"bad blob"
+        store.import_blob(good_data, _digest(good_data))
+        bad_digest = _digest(bad_data)
+        store.import_blob(bad_data, bad_digest)
+
+        # Corrupt only one blob
+        bad_hex = bad_digest.removeprefix("sha256:")
+        (tmp_path / "blobs" / "sha256" / bad_hex).write_bytes(b"tampered")
+
+        result = store.verify()
+        assert result["total"] == 2
+        assert result["ok"] == 1
+        assert result["corrupted"] == 1
+        assert bad_digest in result["corrupted_digests"]
+
+    def test_verify_logs_corrupted_blob(self, tmp_path, caplog):
+        store = Store(tmp_path)
+        data = b"test"
+        digest = _digest(data)
+        store.import_blob(data, digest)
+
+        digest_hex = digest.removeprefix("sha256:")
+        (tmp_path / "blobs" / "sha256" / digest_hex).write_bytes(b"bad")
+
+        with caplog.at_level("ERROR", logger="buncker.store"):
+            store.verify()
+
+        messages = [r.message for r in caplog.records]
+        assert "blob_corrupted" in messages
+
+
+class TestGcImpactReport:
+    """Tests for Store.gc_impact_report() - GC impact analysis."""
+
+    def _make_manifest(self, store, registry, repo, tag, platform, blobs):
+        """Create a cached manifest referencing given blob digests."""
+        platform_file = platform.replace("/", "-") + ".json"
+        manifest_dir = store.path / "manifests" / registry / repo / tag
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "schemaVersion": 2,
+            "config": {"digest": blobs[0], "size": 100} if blobs else {},
+            "layers": [{"digest": d, "size": 200} for d in blobs[1:]],
+        }
+        (manifest_dir / platform_file).write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+
+    def test_no_manifests_returns_empty(self, tmp_path):
+        store = Store(tmp_path)
+        result = store.gc_impact_report(["sha256:" + "a" * 64])
+        assert result == []
+
+    def test_no_impact_when_no_overlap(self, tmp_path):
+        store = Store(tmp_path)
+        blob_data = b"config blob"
+        digest = _digest(blob_data)
+        store.import_blob(blob_data, digest)
+        self._make_manifest(
+            store,
+            "docker.io",
+            "library/alpine",
+            "3.19",
+            "linux/amd64",
+            [digest],
+        )
+
+        # GC a different digest
+        other = "sha256:" + "f" * 64
+        result = store.gc_impact_report([other])
+        assert result == []
+
+    def test_detects_affected_image(self, tmp_path):
+        store = Store(tmp_path)
+        config_data = b"config"
+        layer_data = b"layer"
+        config_digest = _digest(config_data)
+        layer_digest = _digest(layer_data)
+        store.import_blob(config_data, config_digest)
+        store.import_blob(layer_data, layer_digest)
+
+        self._make_manifest(
+            store,
+            "docker.io",
+            "library/nginx",
+            "1.25",
+            "linux/amd64",
+            [config_digest, layer_digest],
+        )
+
+        result = store.gc_impact_report([layer_digest])
+        assert len(result) == 1
+        assert result[0]["image"] == "docker.io/library/nginx:1.25"
+        assert result[0]["platform"] == "linux/amd64"
+        assert result[0]["missing_count"] == 1
+        assert layer_digest in result[0]["missing_blobs"]
+
+    def test_multiple_images_affected(self, tmp_path):
+        store = Store(tmp_path)
+        shared = b"shared layer"
+        shared_digest = _digest(shared)
+        store.import_blob(shared, shared_digest)
+
+        # Two images share the same blob
+        self._make_manifest(
+            store,
+            "docker.io",
+            "library/alpine",
+            "3.19",
+            "linux/amd64",
+            [shared_digest],
+        )
+        self._make_manifest(
+            store,
+            "docker.io",
+            "library/debian",
+            "12",
+            "linux/amd64",
+            [shared_digest],
+        )
+
+        result = store.gc_impact_report([shared_digest])
+        assert len(result) == 2
+        images = {r["image"] for r in result}
+        assert "docker.io/library/alpine:3.19" in images
+        assert "docker.io/library/debian:12" in images

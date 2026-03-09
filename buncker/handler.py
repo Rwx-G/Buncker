@@ -118,6 +118,9 @@ class BunckerHandler(BaseHTTPRequestHandler):
         if path == "/admin/status":
             self._handle_admin_status()
             return
+        if path == "/admin/health":
+            self._handle_admin_health()
+            return
         if path == "/admin/gc/report":
             self._handle_admin_gc_report()
             return
@@ -181,6 +184,9 @@ class BunckerHandler(BaseHTTPRequestHandler):
             return
         if path == "/admin/import":
             self._handle_admin_import()
+            return
+        if path == "/admin/gc/impact":
+            self._handle_admin_gc_impact()
             return
         if path == "/admin/gc/execute":
             self._handle_admin_gc_execute()
@@ -296,13 +302,23 @@ class BunckerHandler(BaseHTTPRequestHandler):
         if actual_digest != digest:
             _log.error(
                 "blob_integrity_error",
-                extra={"expected": digest, "actual": actual_digest},
+                extra={
+                    **self._request_meta(self._auth_level),
+                    "expected": digest,
+                    "actual": actual_digest,
+                },
             )
 
         try:
             store.update_metadata(digest, "pull")
         except StoreError:
-            _log.warning("metadata_update_failed", extra={"digest": digest})
+            _log.warning(
+                "metadata_update_failed",
+                extra={
+                    **self._request_meta(self._auth_level),
+                    "digest": digest,
+                },
+            )
 
     def _handle_blob_head(self, name: str, digest: str):
         """HEAD /v2/{name}/blobs/{digest}."""
@@ -745,6 +761,75 @@ class BunckerHandler(BaseHTTPRequestHandler):
         }
         self._send_json(200, status)
 
+    def _handle_admin_health(self):
+        """GET /admin/health - Health check with store integrity and cert info."""
+        store = self._get_store()
+
+        # Store integrity: verify oci-layout exists and blob count
+        oci_layout = store.path / "oci-layout"
+        store_ok = oci_layout.exists()
+
+        blobs_dir = store.path / "blobs" / "sha256"
+        blob_count = 0
+        if blobs_dir.exists():
+            blob_count = sum(
+                1
+                for f in blobs_dir.iterdir()
+                if f.is_file() and not f.name.startswith(".")
+            )
+
+        # Disk space
+        disk = shutil.disk_usage(store.path)
+
+        # TLS cert expiry
+        cert_info: dict = {}
+        tls_cert_path = store.path / "tls" / "server.pem"
+        if tls_cert_path.exists():
+            try:
+                from cryptography import x509
+
+                cert_data = tls_cert_path.read_bytes()
+                cert = x509.load_pem_x509_certificate(cert_data)
+                now = datetime.now(tz=UTC)
+                days_left = (cert.not_valid_after_utc - now).days
+                cert_info = {
+                    "not_valid_after": cert.not_valid_after_utc.isoformat(),
+                    "days_until_expiry": days_left,
+                    "expired": days_left <= 0,
+                }
+            except Exception:
+                cert_info = {"error": "unable to read certificate"}
+
+        # Uptime
+        start_time = getattr(self._server_ref, "_start_time", None)
+        uptime = 0
+        if start_time is not None:
+            uptime = int(time.time() - start_time)
+
+        # Overall status
+        healthy = store_ok and disk.free > 100 * 1024 * 1024  # > 100 MiB
+        if cert_info.get("expired"):
+            healthy = False
+
+        health = {
+            "healthy": healthy,
+            "store": {
+                "oci_layout_valid": store_ok,
+                "blob_count": blob_count,
+            },
+            "disk": {
+                "total": disk.total,
+                "used": disk.used,
+                "free": disk.free,
+            },
+            "uptime": uptime,
+        }
+        if cert_info:
+            health["tls"] = cert_info
+
+        status_code = 200 if healthy else 503
+        self._send_json(status_code, health)
+
     def _handle_admin_gc_report(self):
         """GET /admin/gc/report - GC candidates."""
         params = parse_qs(urlparse(self.path).query)
@@ -761,6 +846,26 @@ class BunckerHandler(BaseHTTPRequestHandler):
         store = self._get_store()
         candidates = store.gc_report(inactive_days)
         self._send_json(200, {"candidates": candidates, "count": len(candidates)})
+
+    def _handle_admin_gc_impact(self):
+        """POST /admin/gc/impact - Analyze which images break if blobs are deleted."""
+        body = self._read_json_body()
+        if body is None:
+            return
+
+        digests = body.get("digests")
+        if not digests or not isinstance(digests, list):
+            self._send_admin_error(400, "MISSING_FIELD", "digests array required")
+            return
+
+        for d in digests:
+            if not _DIGEST_RE.match(d):
+                self._send_admin_error(400, "DIGEST_INVALID", f"invalid digest: {d}")
+                return
+
+        store = self._get_store()
+        impact = store.gc_impact_report(digests)
+        self._send_json(200, {"impact": impact, "affected_images": len(impact)})
 
     def _handle_admin_gc_execute(self):
         """POST /admin/gc/execute - Execute GC."""

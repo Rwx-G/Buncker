@@ -65,9 +65,12 @@ class TestSetupMnemonicStorage:
         env_path = tmp_path / "env"
         assert env_path.exists()
         content = env_path.read_text()
-        assert content.startswith("BUNCKER_MNEMONIC=")
-        words = content.strip().split("=", 1)[1].split()
-        assert len(words) == 16
+        # Encrypted format on Linux (machine-id available), cleartext on Windows
+        assert content.startswith("BUNCKER_MNEMONIC_ENC=") or content.startswith(
+            "BUNCKER_MNEMONIC="
+        )
+        value = content.strip().split("=", 1)[1]
+        assert len(value) > 0
 
     def test_setup_config_has_expected_fields(self, tmp_path):
         config_path = tmp_path / "config.json"

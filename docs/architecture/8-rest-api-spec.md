@@ -23,7 +23,9 @@ OCI endpoints are **always unauthenticated** regardless of auth configuration.
 | POST | `/admin/import` | Import response.tar.enc (local CLI, multipart/form-data) | Admin |
 | PUT | `/admin/import` | Streaming upload of response.tar.enc (remote, `curl -T`) | Admin |
 | GET | `/admin/status` | Store state + disk usage | Read-only |
+| GET | `/admin/health` | Health check (store integrity, disk, TLS cert expiry, uptime) | Read-only |
 | GET | `/admin/gc/report` | GC candidates report | Read-only |
+| POST | `/admin/gc/impact` | Impact analysis before deletion (affected images) | Admin |
 | POST | `/admin/gc/execute` | Execute GC (requires operator + digests) | Admin |
 | GET | `/admin/logs` | Query logs (filter by event, since, limit) | Read-only |
 
@@ -40,6 +42,30 @@ OCI endpoints are **always unauthenticated** regardless of auth configuration.
 | `disk_used` | int | Used disk space in bytes |
 | `disk_free` | int | Free disk space in bytes |
 | `uptime` | int | Server uptime in seconds |
+
+### GET /admin/health - Response
+
+Returns 200 when healthy, 503 otherwise.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `healthy` | bool | Overall health (store OK, disk > 100 MiB, TLS cert not expired) |
+| `store.oci_layout_valid` | bool | OCI layout marker file exists |
+| `store.blob_count` | int | Number of stored blobs |
+| `disk.total` | int | Total disk space in bytes |
+| `disk.used` | int | Used disk space in bytes |
+| `disk.free` | int | Free disk space in bytes |
+| `uptime` | int | Server uptime in seconds |
+| `tls` | object? | Present only when TLS is configured |
+| `tls.not_valid_after` | string | Certificate expiry (ISO 8601) |
+| `tls.days_until_expiry` | int | Days until certificate expires |
+| `tls.expired` | bool | Whether the certificate has expired |
+
+### POST /admin/gc/impact - Request & Response
+
+Request body: `{"digests": ["sha256:abc...", ...]}`
+
+Response: `{"impact": [...], "affected_images": <int>}` - lists images that would become non-pullable if the specified blobs are deleted. Use this before `gc/execute` to preview consequences.
 
 ### Authentication (V2 - after `buncker api-setup`)
 

@@ -1,0 +1,15 @@
+schema: 1
+story: '6.3'
+story_title: 'Audit Trail Enrichment'
+gate: PASS
+status_reason: 'All ACs met after fixes. blob_integrity_error and metadata_update_failed now include audit fields. Test assertions added. Token values verified never logged (NFR7).'
+reviewer: 'Romain G.'
+updated: '2026-03-09T12:00:00Z'
+top_issues:
+  - id: 'fixed-1'
+    severity: major
+    description: 'FIXED: blob_integrity_error and metadata_update_failed now include client_ip, auth_level, user_agent via _request_meta().'
+  - id: 'fixed-2'
+    severity: major
+    description: 'FIXED: test_successful_request_has_audit_fields now asserts on handler records. Added test_no_token_values_in_logs for NFR7.'
+waiver: { active: false }

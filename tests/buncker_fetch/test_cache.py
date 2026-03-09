@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import time
+from unittest import mock
 
 import pytest
 
@@ -68,6 +69,51 @@ class TestStoreBlob:
     def test_creates_directory_structure(self, tmp_path):
         Cache(tmp_path)
         assert (tmp_path / "blobs" / "sha256").is_dir()
+
+
+class TestStoreBlobException:
+    def test_exception_during_write_cleans_temp_file(self, tmp_path):
+        """Exception during blob write cleans up temp file."""
+        cache = Cache(tmp_path)
+        digest, data = _make_blob(b"exception test")
+
+        # Mock os.write to raise after file is created
+        def failing_write(fd, data):
+            raise OSError("disk full")
+
+        with (
+            mock.patch("buncker_fetch.cache.os.write", side_effect=failing_write),
+            pytest.raises(OSError, match="disk full"),
+        ):
+            cache.store_blob(digest, data)
+
+        # Verify no temp files left behind
+        blobs_dir = tmp_path / "blobs" / "sha256"
+        # Should only have files with sha256 hex names, no temp files
+        for f in blobs_dir.iterdir():
+            assert len(f.name) == 64, f"Unexpected temp file: {f.name}"
+
+
+class TestSubdirectoryHandling:
+    def test_stats_ignores_subdirectory(self, tmp_path):
+        """Subdirectory in blobs_dir is ignored by stats()."""
+        cache = Cache(tmp_path)
+        # Create a subdirectory in blobs/sha256/
+        sub = tmp_path / "blobs" / "sha256" / "subdir"
+        sub.mkdir()
+
+        stats = cache.stats()
+        assert stats["blob_count"] == 0
+
+    def test_cache_clean_ignores_subdirectory(self, tmp_path):
+        """Subdirectory in blobs_dir is ignored by cache_clean()."""
+        cache = Cache(tmp_path)
+        sub = tmp_path / "blobs" / "sha256" / "subdir"
+        sub.mkdir()
+
+        result = cache.cache_clean(older_than_days=0)
+        assert result["count"] == 0
+        assert sub.exists()  # subdirectory not deleted
 
 
 class TestCacheClean:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import logging
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -109,6 +110,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=4,
         help="Number of parallel downloads",
+    )
+    fetch_parser.add_argument(
+        "--deb",
+        type=Path,
+        default=None,
+        help="Path to buncker .deb to include for offline auto-update",
     )
     fetch_parser.set_defaults(func=cmd_fetch)
 
@@ -339,6 +346,17 @@ def cmd_fetch(args: argparse.Namespace) -> int:
     if output_dir is None:
         tp = config.get("transfer_path", "")
         output_dir = Path(tp) if tp else Path.cwd()
+    # Resolve .deb for auto-update (FR15)
+    deb_path = getattr(args, "deb", None)
+    if deb_path and not deb_path.exists():
+        _print_error(f".deb file not found: {deb_path}", args)
+        return 1
+    if deb_path and not getattr(args, "json_output", False):
+        print(
+            f"Including .deb for offline update: {deb_path.name}",
+            file=sys.stderr,
+        )
+
     response_path = build_response(
         cache,
         blobs,
@@ -347,6 +365,7 @@ def cmd_fetch(args: argparse.Namespace) -> int:
         hmac_key=hmac_key,
         source_id=source_id,
         output_dir=output_dir,
+        deb_path=deb_path,
         manifests=fetched_manifests,
     )
 
@@ -384,7 +403,6 @@ def _fetch_manifests(
         return []
 
     import hashlib
-    import logging
 
     _log = logging.getLogger("buncker.fetch.manifests")
     results = []
@@ -449,6 +467,11 @@ def _fetch_manifests(
                 sort_keys=True,
             ).encode()
             source_digest = f"sha256:{hashlib.sha256(raw).hexdigest()}"
+
+            # Check if upstream manifest changed since last fetch
+            image_key = f"{registry}/{repository}:{tag}/{platform_str}"
+            _check_manifest_changed(image_key, source_digest, _log)
+
             platform_manifest["_buncker"] = {
                 "cached_at": datetime.now(tz=UTC).isoformat(),
                 "source_digest": source_digest,
@@ -479,6 +502,56 @@ def _fetch_manifests(
             )
 
     return results
+
+
+_DIGEST_CACHE_PATH = _DEFAULT_CACHE_PATH / "manifest-digests.json"
+
+
+def _load_digest_cache() -> dict[str, str]:
+    """Load the manifest digest cache from disk."""
+    if _DIGEST_CACHE_PATH.exists():
+        try:
+            return json.loads(_DIGEST_CACHE_PATH.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+    return {}
+
+
+def _save_digest_cache(cache: dict[str, str]) -> None:
+    """Save the manifest digest cache to disk."""
+    _DIGEST_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _DIGEST_CACHE_PATH.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+
+
+def _check_manifest_changed(
+    image_key: str,
+    source_digest: str,
+    log: logging.Logger,
+) -> None:
+    """Compare fresh manifest digest with cached one, warn if changed.
+
+    Updates the digest cache with the new value regardless.
+
+    Args:
+        image_key: Image identifier (registry/repo:tag/platform).
+        source_digest: SHA256 digest of the fresh manifest.
+        log: Logger instance.
+    """
+    cache = _load_digest_cache()
+    previous = cache.get(image_key)
+
+    if previous and previous != source_digest:
+        log.warning(
+            "manifest_upstream_changed",
+            extra={
+                "image": image_key,
+                "previous_digest": previous,
+                "new_digest": source_digest,
+            },
+        )
+
+    cache[image_key] = source_digest
+    _save_digest_cache(cache)
 
 
 def cmd_status(args: argparse.Namespace) -> int:

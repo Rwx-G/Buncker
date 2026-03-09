@@ -16,7 +16,7 @@ import pytest
 
 from buncker.server import BunckerServer
 from buncker.store import Store
-from shared.crypto import derive_keys, split_mnemonic
+from shared.crypto import decrypt_env_value, derive_keys, split_mnemonic
 
 
 @pytest.mark.e2e
@@ -56,8 +56,10 @@ class TestAuthenticatedCycle:
         assert config["api"]["enabled"] is True
         assert config["tls"] is True
 
-        # Start server with auth
-        mnemonic = (config_path.parent / "env").read_text().split("=", 1)[1].strip()
+        # Start server with auth - handle encrypted or cleartext env
+        env_line = (config_path.parent / "env").read_text().strip()
+        key, value = env_line.split("=", 1)
+        mnemonic = decrypt_env_value(value) if key == "BUNCKER_MNEMONIC_ENC" else value
         mnemonic_12, salt = split_mnemonic(mnemonic)
         aes_key, hmac_key = derive_keys(mnemonic_12, salt)
 
