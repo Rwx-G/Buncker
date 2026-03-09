@@ -351,9 +351,11 @@ def cmd_fetch(args: argparse.Namespace) -> int:
     if deb_path and not deb_path.exists():
         _print_error(f".deb file not found: {deb_path}", args)
         return 1
-    if deb_path:
-        if not getattr(args, "json_output", False):
-            print(f"Including .deb for offline update: {deb_path.name}", file=sys.stderr)
+    if deb_path and not getattr(args, "json_output", False):
+        print(
+            f"Including .deb for offline update: {deb_path.name}",
+            file=sys.stderr,
+        )
 
     response_path = build_response(
         cache,

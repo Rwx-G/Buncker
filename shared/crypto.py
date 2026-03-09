@@ -290,9 +290,9 @@ def decrypt_env_value(
     ct = base64.b64decode(encrypted_b64)
     try:
         return decrypt(ct, key).decode()
-    except CryptoError:
+    except CryptoError as err:
         raise CryptoError(
             "Failed to decrypt mnemonic from env file. "
             "This may happen after migrating to a different machine. "
             "Set BUNCKER_MNEMONIC environment variable directly."
-        )
+        ) from err

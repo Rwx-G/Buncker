@@ -681,7 +681,8 @@ def _cmd_serve(args: argparse.Namespace) -> None:
             mnemonic = input("Enter mnemonic: ").strip()
         except EOFError:
             print(
-                "Error: mnemonic required (set BUNCKER_MNEMONIC_ENC or provide via stdin)"
+                "Error: mnemonic required"
+                " (set BUNCKER_MNEMONIC_ENC or provide via stdin)"
             )
             sys.exit(1)
 
