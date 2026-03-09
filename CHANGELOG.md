@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `gc --report` now shows which images become non-pullable if candidates are deleted (`gc_impact_report`)
 - `POST /admin/gc/impact` endpoint to analyze image impact before executing GC
 - `gc --execute` requires `--yes` flag or interactive confirmation to prevent accidental deletions
+- Fetch rate limiting: `buncker-fetch` now retries on HTTP 429 using `Retry-After` header instead of failing immediately
+- Rate limit observability: logs warning when `RateLimit-Remaining` drops below 10 on successful responses
+- Manifest auto-refresh: `buncker-fetch` tracks manifest digests across fetches and warns when upstream content changes
 
 ### Fixed
 

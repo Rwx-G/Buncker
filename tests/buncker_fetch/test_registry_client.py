@@ -9,7 +9,12 @@ from unittest.mock import patch
 
 import pytest
 
-from buncker_fetch.registry_client import RegistryClient, load_credentials
+from buncker_fetch.registry_client import (
+    RegistryClient,
+    _log_rate_limit_headers,
+    _parse_retry_after,
+    load_credentials,
+)
 from shared.exceptions import RegistryError
 
 
@@ -282,13 +287,73 @@ class TestRetry:
 
 
 class TestRateLimit:
-    """Test 429 produces explicit message."""
+    """Test 429 rate limiting with retry."""
 
-    def test_429_explicit_message(self, mock_server, client):
+    def test_429_retries_then_succeeds(self, mock_server, client):
+        """429 on first attempt, success on second."""
+        _patch_https_to_http(client)
+
+        call_count = 0
+        original_open = client._opener.open
+
+        def counting_open(req, timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # Simulate 429
+                import urllib.error
+
+                resp = urllib.error.HTTPError(
+                    req.full_url, 429, "Too Many Requests", {"Retry-After": "1"}, None
+                )
+                raise resp
+            return original_open(req, timeout=timeout)
+
+        with (
+            patch.object(client._opener, "open", side_effect=counting_open),
+            patch("buncker_fetch.registry_client.time.sleep") as mock_sleep,
+        ):
+            manifest = client.fetch_manifest("library/test", "latest")
+
+        assert manifest["schemaVersion"] == 2
+        mock_sleep.assert_called_once_with(1.0)
+
+    def test_429_exhausts_retries(self, mock_server, client):
+        """429 on every attempt raises RegistryError."""
         MockRegistryHandler.rate_limit = True
         _patch_https_to_http(client)
-        with pytest.raises(RegistryError, match="Rate limited"):
+        with (
+            patch("buncker_fetch.registry_client.time.sleep"),
+            pytest.raises(RegistryError, match="Rate limited"),
+        ):
             client.fetch_manifest("library/test", "latest")
+
+    def test_429_respects_retry_after_header(self, mock_server, client):
+        """Retry-After header value is used as sleep duration."""
+        _patch_https_to_http(client)
+
+        call_count = 0
+        original_open = client._opener.open
+
+        def counting_open(req, timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                import urllib.error
+
+                resp = urllib.error.HTTPError(
+                    req.full_url, 429, "Too Many Requests", {"Retry-After": "42"}, None
+                )
+                raise resp
+            return original_open(req, timeout=timeout)
+
+        with (
+            patch.object(client._opener, "open", side_effect=counting_open),
+            patch("buncker_fetch.registry_client.time.sleep") as mock_sleep,
+        ):
+            client.fetch_manifest("library/test", "latest")
+
+        mock_sleep.assert_called_once_with(42.0)
 
 
 class TestTimeout:
@@ -299,6 +364,58 @@ class TestTimeout:
         client = RegistryClient("192.0.2.1:1")  # RFC 5737 TEST-NET
         with pytest.raises(RegistryError, match="Connection failed"):
             client.fetch_manifest("library/test", "latest")
+
+
+class TestParseRetryAfter:
+    """Test _parse_retry_after helper."""
+
+    def test_integer_seconds(self):
+        assert _parse_retry_after("30") == 30.0
+
+    def test_empty_string_returns_default(self):
+        assert _parse_retry_after("") == 5.0
+
+    def test_minimum_is_one_second(self):
+        assert _parse_retry_after("0") == 1.0
+
+    def test_unparseable_returns_default(self):
+        assert _parse_retry_after("not-a-number") == 5.0
+
+
+class TestRateLimitHeaders:
+    """Test _log_rate_limit_headers observability."""
+
+    def test_logs_warning_when_remaining_low(self, caplog):
+        class FakeResponse:
+            headers = {
+                "RateLimit-Remaining": "5",
+                "RateLimit-Limit": "100",
+                "RateLimit-Reset": "60",
+            }
+
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="buncker.fetch.registry_client"):
+            _log_rate_limit_headers(FakeResponse(), "docker.io")
+
+        assert any("registry_rate_limit_low" in r.message for r in caplog.records)
+
+    def test_no_warning_when_remaining_high(self, caplog):
+        class FakeResponse:
+            headers = {"RateLimit-Remaining": "50", "RateLimit-Limit": "100"}
+
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="buncker.fetch.registry_client"):
+            _log_rate_limit_headers(FakeResponse(), "docker.io")
+
+        assert not any("registry_rate_limit_low" in r.message for r in caplog.records)
+
+    def test_no_headers_no_crash(self):
+        class FakeResponse:
+            headers = {}
+
+        _log_rate_limit_headers(FakeResponse(), "docker.io")  # should not raise
 
 
 class TestLoadCredentials:

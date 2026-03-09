@@ -290,6 +290,76 @@ class TestCacheClean:
         assert result == 1
 
 
+class TestManifestAutoRefresh:
+    """Test manifest digest tracking and upstream change detection."""
+
+    def test_first_fetch_stores_digest(self, tmp_path):
+        from buncker_fetch.__main__ import _check_manifest_changed
+
+        cache_path = tmp_path / "cache" / "manifest-digests.json"
+        img = "docker.io/library/nginx:latest/linux/amd64"
+        with patch(
+            "buncker_fetch.__main__._DIGEST_CACHE_PATH", cache_path
+        ):
+            log = MagicMock()
+            _check_manifest_changed(img, "sha256:abc123", log)
+
+            # Should not warn on first fetch
+            log.warning.assert_not_called()
+
+            # Should store the digest
+            assert cache_path.exists()
+            data = json.loads(cache_path.read_text())
+            assert data[img] == "sha256:abc123"
+
+    def test_same_digest_no_warning(self, tmp_path):
+        from buncker_fetch.__main__ import _check_manifest_changed
+
+        cache_path = tmp_path / "cache" / "manifest-digests.json"
+        img = "docker.io/library/nginx:latest/linux/amd64"
+        with patch(
+            "buncker_fetch.__main__._DIGEST_CACHE_PATH", cache_path
+        ):
+            log = MagicMock()
+            _check_manifest_changed(img, "sha256:abc123", log)
+            _check_manifest_changed(img, "sha256:abc123", log)
+
+            log.warning.assert_not_called()
+
+    def test_changed_digest_warns(self, tmp_path):
+        from buncker_fetch.__main__ import _check_manifest_changed
+
+        cache_path = tmp_path / "cache" / "manifest-digests.json"
+        img = "docker.io/library/nginx:latest/linux/amd64"
+        with patch(
+            "buncker_fetch.__main__._DIGEST_CACHE_PATH", cache_path
+        ):
+            log = MagicMock()
+            _check_manifest_changed(img, "sha256:old", log)
+            _check_manifest_changed(img, "sha256:new", log)
+
+            log.warning.assert_called_once()
+            call_args = log.warning.call_args
+            assert call_args[0][0] == "manifest_upstream_changed"
+            extra = call_args[1]["extra"]
+            assert extra["previous_digest"] == "sha256:old"
+            assert extra["new_digest"] == "sha256:new"
+
+    def test_digest_cache_persists(self, tmp_path):
+        from buncker_fetch.__main__ import (
+            _load_digest_cache,
+            _save_digest_cache,
+        )
+
+        cache_path = tmp_path / "cache" / "manifest-digests.json"
+        with patch(
+            "buncker_fetch.__main__._DIGEST_CACHE_PATH", cache_path
+        ):
+            _save_digest_cache({"key1": "sha256:aaa"})
+            loaded = _load_digest_cache()
+            assert loaded == {"key1": "sha256:aaa"}
+
+
 class TestErrorHandling:
     def test_no_command_shows_help(self, capsys):
         result = main([])
