@@ -362,6 +362,85 @@ NEW_ADMIN_TOKEN=$(exec_offline python3 -c "import json; print(json.load(open('/e
 check "admin token changed after reset" \
     test "$NEW_ADMIN_TOKEN" != "$ADMIN_TOKEN"
 
+# Reload tokens (reset may have changed admin)
+ADMIN_TOKEN=$(exec_offline python3 -c "import json; print(json.load(open('/etc/buncker/api-tokens.json'))['admin'])")
+RO_TOKEN=$(exec_offline python3 -c "import json; print(json.load(open('/etc/buncker/api-tokens.json'))['readonly'])")
+
+# ---------------------------------------------------------------
+# Phase 3: OCI Restricted Mode (--restrict-oci)
+# ---------------------------------------------------------------
+
+bold ""
+bold "=== Phase 3: OCI Restricted Mode (--restrict-oci) ==="
+
+# Stop daemon and restart with --restrict-oci
+bold "  -- Step 1: Restart daemon with --restrict-oci --"
+exec_offline bash -c "kill \$(pgrep -f 'buncker serve') 2>/dev/null" || true
+sleep 1
+
+exec_offline bash -c "nohup bash -c 'BUNCKER_MNEMONIC=\"$MNEMONIC\" buncker serve --restrict-oci' > /tmp/buncker-restrict.log 2>&1 &"
+sleep 3
+
+# OCI /v2/ without token -> 401
+bold "  -- Step 2: Test OCI auth enforcement --"
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" "$BUNCKER_URL/v2/")
+check "OCI /v2/ without token -> 401 (restricted)" \
+    test "$HTTP_CODE" = "401"
+
+# OCI /v2/ with WWW-Authenticate header
+WWW_AUTH=$(exec_client curl -ks -D - -o /dev/null "$BUNCKER_URL/v2/" | grep -i "WWW-Authenticate" || true)
+check "OCI /v2/ returns WWW-Authenticate: Bearer header" \
+    echo "$WWW_AUTH" | grep -q "Bearer"
+
+# OCI /v2/ with readonly token -> 200
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" \
+    -H "Authorization: Bearer $RO_TOKEN" "$BUNCKER_URL/v2/")
+check "OCI /v2/ with RO token -> 200 (restricted)" \
+    test "$HTTP_CODE" = "200"
+
+# OCI /v2/ with admin token -> 200
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" \
+    -H "Authorization: Bearer $ADMIN_TOKEN" "$BUNCKER_URL/v2/")
+check "OCI /v2/ with admin token -> 200 (restricted)" \
+    test "$HTTP_CODE" = "200"
+
+# OCI manifest without token -> 401
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" \
+    "$BUNCKER_URL/v2/docker.io/library/alpine/manifests/3.19")
+check "OCI manifest without token -> 401 (restricted)" \
+    test "$HTTP_CODE" = "401"
+
+# OCI manifest with RO token -> 200 or 404 (depends on cache)
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" \
+    -H "Authorization: Bearer $RO_TOKEN" \
+    "$BUNCKER_URL/v2/docker.io/library/alpine/manifests/3.19")
+check "OCI manifest with RO token -> auth accepted (restricted)" \
+    test "$HTTP_CODE" != "401"
+
+# OCI blobs without token -> 401
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" \
+    "$BUNCKER_URL/v2/docker.io/library/alpine/blobs/sha256:0000000000000000000000000000000000000000000000000000000000000000")
+check "OCI blob without token -> 401 (restricted)" \
+    test "$HTTP_CODE" = "401"
+
+# HEAD on OCI endpoint without token -> 401
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" -I \
+    "$BUNCKER_URL/v2/docker.io/library/alpine/blobs/sha256:0000000000000000000000000000000000000000000000000000000000000000")
+check "OCI HEAD without token -> 401 (restricted)" \
+    test "$HTTP_CODE" = "401"
+
+# Admin endpoints still require admin token (unchanged)
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" \
+    -H "Authorization: Bearer $RO_TOKEN" "$BUNCKER_URL/admin/status")
+check "admin /status with RO token -> 200 (unchanged)" \
+    test "$HTTP_CODE" = "200"
+
+# Invalid token on OCI -> 401
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" \
+    -H "Authorization: Bearer invalid_token_12345" "$BUNCKER_URL/v2/")
+check "OCI /v2/ with invalid token -> 401 (restricted)" \
+    test "$HTTP_CODE" = "401"
+
 # ---------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------
