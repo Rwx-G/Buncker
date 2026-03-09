@@ -662,6 +662,14 @@ def _cmd_serve(args: argparse.Namespace) -> None:
     from buncker.server import BunckerServer
     from buncker.store import Store
 
+    # Resolve TLS cert paths if enabled
+    tls_cert = None
+    tls_key = None
+    if config.get("tls"):
+        tls_dir = Path(config["store_path"]) / "tls"
+        tls_cert = tls_dir / "server.pem"
+        tls_key = tls_dir / "server-key.pem"
+
     store = Store(Path(config["store_path"]))
     server = BunckerServer(
         bind=config.get("bind", "0.0.0.0"),
@@ -673,6 +681,8 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         log_path=Path(config["store_path"]) / "buncker.log",
         api_tokens=api_tokens,
         api_enabled=api_enabled,
+        tls_cert=tls_cert,
+        tls_key=tls_key,
     )
 
     # Handle SIGTERM/SIGINT
@@ -686,7 +696,8 @@ def _cmd_serve(args: argparse.Namespace) -> None:
     signal.signal(signal.SIGINT, _shutdown)
 
     server.start()
-    print(f"Buncker serving on {config.get('bind')}:{config.get('port')}")
+    scheme = "https" if config.get("tls") else "http"
+    print(f"Buncker serving on {scheme}://{config.get('bind')}:{config.get('port')}")
 
     # Block until shutdown signal (cross-platform)
     shutdown_event.wait()

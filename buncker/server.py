@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import collections
 import logging
+import ssl
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -96,6 +97,8 @@ class BunckerServer:
         log_path: Path | None = None,
         api_tokens: dict[str, str] | None = None,
         api_enabled: bool = False,
+        tls_cert: Path | None = None,
+        tls_key: Path | None = None,
     ) -> None:
         self._bind = bind
         self._port = port
@@ -108,6 +111,8 @@ class BunckerServer:
         self.log_path = log_path
         self.api_tokens = api_tokens
         self.api_enabled = api_enabled
+        self._tls_cert = tls_cert
+        self._tls_key = tls_key
         self._start_time: float | None = None
         self._last_analysis = None
         self._analysis_lock = threading.Lock()
@@ -124,12 +129,22 @@ class BunckerServer:
             handler_factory,
             max_workers=self._max_workers,
         )
+
+        # Wrap socket with TLS if cert/key provided
+        if self._tls_cert and self._tls_key:
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.load_cert_chain(self._tls_cert, self._tls_key)
+            self._server.socket = ctx.wrap_socket(
+                self._server.socket, server_side=True
+            )
+
         self._start_time = time.time()
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
+        scheme = "https" if self._tls_cert else "http"
         _log.info(
             "server_started",
-            extra={"bind": self._bind, "port": self.port},
+            extra={"bind": self._bind, "port": self.port, "scheme": scheme},
         )
 
     def stop(self) -> None:

@@ -468,11 +468,19 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines
 | Import cleanup flag | `--cleanup` flag on `buncker import` to delete .tar.enc after successful import | Done |
 | Streamlined `api-setup` | Auto-export ca.pem to `/etc/buncker/ca.pem` and display cert fingerprint during setup | Done |
 | Disk space in `status` | Show store disk usage and available space in `buncker status` and `/admin/status` | Done |
-| Health-check endpoint | `/admin/health` returning store integrity, cert expiry, and disk space | Planned |
-| Store integrity check | `buncker verify` command to re-hash all blobs and detect silent corruption (bit-rot) | Planned |
-| GC impact report | `gc --report` shows which images become non-pullable if candidates are deleted | Planned |
-| Fetch rate limiting | Auto-pace blob downloads based on registry `RateLimit-*` headers | Planned |
-| Manifest auto-refresh | buncker-fetch re-downloads manifests on every fetch and warns if upstream digest changed | Planned |
+| API auth & LAN clients | Bearer tokens (admin + readonly), TLS, endpoint access control, audit trail | Done |
+| Remote operations | curl-based analyze, generate-manifest download, PUT streaming import with resume | Done |
+| Health-check endpoint | `/admin/health` returning store integrity, cert expiry, and disk space | 0.9.0 |
+| Store integrity check | `buncker verify` command to re-hash all blobs and detect silent corruption (bit-rot) | 0.9.0 |
+| GC impact report | `gc --report` shows which images become non-pullable if candidates are deleted | 0.9.0 |
+| GC execute confirmation | `gc --execute` requires `--yes` flag or interactive confirmation to prevent accidents | 0.9.0 |
+| Fetch rate limiting | Auto-pace blob downloads based on registry `RateLimit-*` headers | 0.9.0 |
+| Manifest auto-refresh | buncker-fetch re-downloads manifests on every fetch and warns if upstream digest changed | 0.9.0 |
+| Resolver ARG edge cases | Tests for conditional ARG defaults (`${VAR:-default}`) and complex `--platform` patterns | 0.9.0 |
+| Security hardening docs | Document `/etc/buncker/env` encryption recommendations and `/v2/*` unauthenticated access risks | 0.9.0 |
+| Quick start with `prepare` | Feature `buncker prepare` in main README workflow instead of separate analyze + generate-manifest | 0.9.0 |
+| Docker Compose support | `buncker analyze --compose docker-compose.yml` to extract all images from multi-service projects | Planned |
+| buncker-fetch on Windows | PyInstaller binary or WSL2 documentation for online-side Windows operators | Planned |
 
 ## License
 

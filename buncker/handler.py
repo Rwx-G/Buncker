@@ -296,13 +296,23 @@ class BunckerHandler(BaseHTTPRequestHandler):
         if actual_digest != digest:
             _log.error(
                 "blob_integrity_error",
-                extra={"expected": digest, "actual": actual_digest},
+                extra={
+                    **self._request_meta(self._auth_level),
+                    "expected": digest,
+                    "actual": actual_digest,
+                },
             )
 
         try:
             store.update_metadata(digest, "pull")
         except StoreError:
-            _log.warning("metadata_update_failed", extra={"digest": digest})
+            _log.warning(
+                "metadata_update_failed",
+                extra={
+                    **self._request_meta(self._auth_level),
+                    "digest": digest,
+                },
+            )
 
     def _handle_blob_head(self, name: str, digest: str):
         """HEAD /v2/{name}/blobs/{digest}."""
