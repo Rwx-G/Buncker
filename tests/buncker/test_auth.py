@@ -388,6 +388,54 @@ class TestAuthenticateRequest:
         level = authenticate_request(handler, tokens, api_enabled=True)
         assert level == "local"
 
+    def test_empty_bearer_token_rejected(self):
+        """'Bearer ' with no token value is rejected (SEC-04)."""
+        handler = self._make_handler("/admin/status", "GET", "Bearer ")
+        tokens = {"readonly": "ro_token", "admin": "admin_token"}
+        with pytest.raises(AuthError) as exc_info:
+            authenticate_request(handler, tokens, api_enabled=True)
+        assert exc_info.value.status == 401
+
+
+class TestLoadTokensPermissionWarning:
+    """Tests for load_api_tokens() permission check (SEC-03)."""
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="File permissions not enforced on Windows",
+    )
+    def test_warns_on_insecure_permissions(self, tmp_path, caplog):
+        import logging
+
+        path = tmp_path / "api-tokens.json"
+        path.write_text('{"readonly": "a", "admin": "b"}')
+        path.chmod(0o644)  # too open
+
+        with caplog.at_level(logging.WARNING, logger="buncker.auth"):
+            load_api_tokens(path)
+
+        assert any(
+            "api_tokens_insecure_permissions" in r.message for r in caplog.records
+        )
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="File permissions not enforced on Windows",
+    )
+    def test_no_warning_on_correct_permissions(self, tmp_path, caplog):
+        import logging
+
+        path = tmp_path / "api-tokens.json"
+        path.write_text('{"readonly": "a", "admin": "b"}')
+        path.chmod(0o600)
+
+        with caplog.at_level(logging.WARNING, logger="buncker.auth"):
+            load_api_tokens(path)
+
+        assert not any(
+            "api_tokens_insecure_permissions" in r.message for r in caplog.records
+        )
+
 
 class TestAuthIntegration:
     """Integration tests for auth middleware with live server."""

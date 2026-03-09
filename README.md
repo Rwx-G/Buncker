@@ -314,7 +314,7 @@ references as in Approach 1.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `source_id` | string | `""` | Unique identifier for this buncker instance |
-| `bind` | string | `"0.0.0.0"` | Listen address |
+| `bind` | string | `"0.0.0.0"` | Listen address (all interfaces - use firewall rules to restrict access) |
 | `port` | int | `5000` | Listen port |
 | `store_path` | string | `"/var/lib/buncker"` | OCI blob store directory |
 | `max_workers` | int | `16` | Thread pool size for HTTP server |
@@ -502,8 +502,12 @@ authentication on OCI endpoints:
 buncker serve --restrict-oci
 ```
 
-This requires `api-setup` to be configured first (tokens + TLS). Docker
-clients authenticate via `hosts.toml`:
+This requires `api-setup` to be configured first (tokens + TLS). The
+auto-generated certificate covers `localhost`, `127.0.0.1`, and `buncker`
+as SANs. For a custom hostname, provide your own certificate via
+`buncker api-setup --cert <path> --key <path>`.
+
+Docker clients authenticate via `hosts.toml`:
 
 ```toml
 # /etc/docker/certs.d/buncker:5000/hosts.toml
@@ -538,6 +542,8 @@ When API auth is enabled (`buncker api-setup`):
 - Token values are never logged (only `auth_level` appears in audit trail)
 - All admin API calls are logged with `client_ip`, `auth_level`, and
   `user_agent` for forensic review
+- Per-IP rate limiting on admin endpoints: 60 requests/minute sliding window
+  (returns 429 with `Retry-After` header when exceeded)
 
 ## Troubleshooting
 

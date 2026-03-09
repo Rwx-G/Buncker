@@ -137,6 +137,11 @@ class BunckerServer:
         # Wrap socket with TLS if cert/key provided
         if self._tls_cert and self._tls_key:
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            ctx.set_ciphers(
+                "ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20"
+            )
+            ctx.options |= ssl.OP_NO_SSLv2 | ssl.OP_NO_SSLv3
             ctx.load_cert_chain(self._tls_cert, self._tls_key)
             self._server.socket = ctx.wrap_socket(self._server.socket, server_side=True)
 

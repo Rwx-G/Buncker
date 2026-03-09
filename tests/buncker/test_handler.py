@@ -61,6 +61,43 @@ class TestInputValidation:
         assert not _TAG_RE.match("a" * 129)
 
 
+class TestSecurityHeaders:
+    """Tests for security headers on all responses (SEC-09)."""
+
+    def _make_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(bind="127.0.0.1", port=0, store=store, source_id="test")
+        srv.start()
+        return srv
+
+    def test_nosniff_header_present(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            resp = urllib.request.urlopen(f"http://127.0.0.1:{srv.port}/v2/")
+            assert resp.headers["X-Content-Type-Options"] == "nosniff"
+        finally:
+            srv.stop()
+
+    def test_frame_deny_header_present(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            resp = urllib.request.urlopen(f"http://127.0.0.1:{srv.port}/v2/")
+            assert resp.headers["X-Frame-Options"] == "DENY"
+        finally:
+            srv.stop()
+
+    def test_cache_control_header_present(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            resp = urllib.request.urlopen(f"http://127.0.0.1:{srv.port}/v2/")
+            assert resp.headers["Cache-Control"] == "no-store"
+        finally:
+            srv.stop()
+
+
 class TestHealthEndpoint:
     """Tests for GET /admin/health (health-check endpoint)."""
 
@@ -398,6 +435,54 @@ class TestPutImport:
             # Error should be from import pipeline, not checksum
             body = json.loads(exc_info.value.read())
             assert body["code"] != "CHECKSUM_MISMATCH"
+        finally:
+            srv.stop()
+
+    def test_put_invalid_checksum_hex_returns_400(self, tmp_path):
+        """Non-hex checksum value is rejected early (SEC-05)."""
+        srv = self._make_server(tmp_path)
+        try:
+            data = b"some data"
+            url = f"http://127.0.0.1:{srv.port}/admin/import"
+            req = urllib.request.Request(
+                url,
+                data=data,
+                method="PUT",
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(len(data)),
+                    "X-Buncker-Checksum": "sha256:" + "z" * 64,
+                },
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 400
+            body = json.loads(exc_info.value.read())
+            assert body["code"] == "INVALID_CHECKSUM"
+        finally:
+            srv.stop()
+
+    def test_put_short_checksum_returns_400(self, tmp_path):
+        """Checksum with wrong length is rejected (SEC-05)."""
+        srv = self._make_server(tmp_path)
+        try:
+            data = b"some data"
+            url = f"http://127.0.0.1:{srv.port}/admin/import"
+            req = urllib.request.Request(
+                url,
+                data=data,
+                method="PUT",
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(len(data)),
+                    "X-Buncker-Checksum": "sha256:abc123",
+                },
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 400
+            body = json.loads(exc_info.value.read())
+            assert body["code"] == "INVALID_CHECKSUM"
         finally:
             srv.stop()
 

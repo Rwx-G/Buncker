@@ -57,6 +57,16 @@ def load_api_tokens(path: Path | None = None) -> dict[str, str] | None:
     token_path = path or _DEFAULT_TOKENS_PATH
     if not token_path.exists():
         return None
+
+    # Warn if file permissions are too open
+    with contextlib.suppress(OSError):
+        mode = token_path.stat().st_mode & 0o777
+        if mode != 0o600:
+            _log.warning(
+                "api_tokens_insecure_permissions",
+                extra={"path": str(token_path), "mode": oct(mode)},
+            )
+
     raw = token_path.read_text(encoding="utf-8")
     return json.loads(raw)
 
@@ -85,7 +95,7 @@ def generate_self_signed_cert(tls_dir: Path) -> tuple[Path, Path, Path]:
     ten_years = timedelta(days=3650)
 
     # Generate CA key and certificate
-    ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    ca_key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
     ca_name = x509.Name(
         [
             x509.NameAttribute(NameOID.COMMON_NAME, "Buncker CA"),
@@ -123,7 +133,7 @@ def generate_self_signed_cert(tls_dir: Path) -> tuple[Path, Path, Path]:
     )
 
     # Generate server key and certificate
-    server_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    server_key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
     server_name = x509.Name(
         [
             x509.NameAttribute(NameOID.COMMON_NAME, "buncker"),
@@ -275,6 +285,8 @@ def authenticate_request(
         raise AuthError(401, "Authentication required", "AUTH_REQUIRED")
 
     token = auth_header[7:]  # Strip "Bearer "
+    if not token:
+        raise AuthError(401, "Authentication required", "AUTH_REQUIRED")
 
     # Check admin token first (grants full access)
     if _hmac.compare_digest(token, tokens.get("admin", "")):

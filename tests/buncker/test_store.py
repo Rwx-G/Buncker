@@ -2,6 +2,9 @@
 
 import hashlib
 import json
+import os
+import stat
+import sys
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -122,6 +125,56 @@ class TestImportBlob:
         meta = store.get_metadata(digest)
         assert "nginx:1.25" in meta["image_refs"]
         assert "alpine:3.19" in meta["image_refs"]
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="File permissions not enforced on Windows",
+    )
+    def test_blob_file_permissions_0600(self, tmp_path):
+        """Blob files are created with mode 0600 (SEC-06)."""
+        store = Store(tmp_path)
+        data = b"restricted blob"
+        digest = _digest(data)
+
+        blob_path = store.import_blob(data, digest)
+        mode = os.stat(blob_path).st_mode & 0o777
+        assert mode == 0o600
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="File permissions not enforced on Windows",
+    )
+    def test_sidecar_file_permissions_0600(self, tmp_path):
+        """Metadata sidecar files are created with mode 0600 (SEC-06)."""
+        store = Store(tmp_path)
+        data = b"restricted blob"
+        digest = _digest(data)
+        digest_hex = hashlib.sha256(data).hexdigest()
+
+        store.import_blob(data, digest)
+        sidecar_path = tmp_path / "meta" / "sha256" / f"{digest_hex}.json"
+        mode = os.stat(sidecar_path).st_mode & 0o777
+        assert mode == 0o600
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Symlinks require elevated privileges on Windows",
+    )
+    def test_symlink_at_blob_path_rejected(self, tmp_path):
+        """Symlink at blob destination is rejected (SEC-10)."""
+        store = Store(tmp_path)
+        data = b"legit blob"
+        digest = _digest(data)
+        digest_hex = hashlib.sha256(data).hexdigest()
+
+        # Place a symlink where the blob would be stored
+        blob_path = tmp_path / "blobs" / "sha256" / digest_hex
+        target = tmp_path / "evil_target"
+        target.write_text("evil")
+        blob_path.symlink_to(target)
+
+        with pytest.raises(StoreError, match="Symlink.*rejected"):
+            store.import_blob(data, digest)
 
 
 class TestHasBlob:

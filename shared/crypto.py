@@ -208,7 +208,7 @@ def verify(data: bytes, hmac_key: bytes, signature: str) -> bool:
 # --- Environment value encryption (machine-id based) ---
 
 _ENV_KEY_SALT = b"buncker-env-v1"
-_ENV_KEY_ITERATIONS = 100_000
+_ENV_KEY_ITERATIONS = 600_000
 
 
 def _derive_env_key(machine_id_path: str = "/etc/machine-id") -> bytes:

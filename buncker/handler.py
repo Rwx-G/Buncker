@@ -48,6 +48,13 @@ class BunckerHandler(BaseHTTPRequestHandler):
         """Override to use structured logging instead of stderr."""
         _log.debug("http_request", extra={"http_message": format % args})
 
+    def end_headers(self):
+        """Inject security headers on every response."""
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def _request_meta(self, auth_level: str = "local") -> dict:
         """Extract common request metadata for structured logging."""
         return {
@@ -743,6 +750,14 @@ class BunckerHandler(BaseHTTPRequestHandler):
             return
 
         expected_hash = checksum_header[7:]  # Strip "sha256:"
+        if not re.match(r"^[a-f0-9]{64}$", expected_hash):
+            self._drain_body()
+            self._send_admin_error(
+                400,
+                "INVALID_CHECKSUM",
+                "X-Buncker-Checksum must be sha256:<64 hex chars>",
+            )
+            return
 
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length == 0:

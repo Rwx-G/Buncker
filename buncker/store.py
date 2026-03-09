@@ -79,10 +79,16 @@ class Store:
         blob_path = self._blobs / digest_hex
 
         if not blob_path.exists():
+            if blob_path.is_symlink():
+                raise StoreError(
+                    f"Symlink at blob path rejected: {blob_path}",
+                    context={"digest": expected_digest},
+                )
             fd, tmp = tempfile.mkstemp(dir=self._blobs)
             try:
                 os.write(fd, data)
                 os.close(fd)
+                os.chmod(tmp, 0o600)
                 os.rename(tmp, str(blob_path))
             except BaseException:
                 os.close(fd) if not os.get_inheritable(fd) else None
@@ -431,6 +437,7 @@ class Store:
         try:
             os.write(fd, content)
             os.close(fd)
+            os.chmod(tmp, 0o600)
             os.replace(tmp, str(path))
         except BaseException:
             Path(tmp).unlink(missing_ok=True)

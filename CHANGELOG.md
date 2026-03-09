@@ -22,6 +22,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `stale_manifests` count in `GET /admin/status` response
 - `stale_manifests` list in analyze response for programmatic detection
 
+### Security
+
+- Tar extraction: validate member paths for `..` and absolute paths on Python < 3.12 (zip-slip protection)
+- TLS: enforce minimum TLS 1.2 and restrict cipher suites to ECDHE+AESGCM/CHACHA20
+- API tokens: warn in logs if `api-tokens.json` has insecure file permissions on load
+- Auth: reject empty Bearer token value early instead of relying on comparison fallthrough
+- Import: validate `X-Buncker-Checksum` header as strict `sha256:<64 hex chars>` format
+- Store: set blob and metadata files to mode 0600 (no world-readable defaults)
+- Store: reject symlinks at blob destination path before write
+- Crypto: bump PBKDF2 iterations for env key derivation from 100k to 600k (OWASP minimum)
+- TLS: use RSA-4096 for self-signed CA and server certificates (was 2048)
+- HTTP: add `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Cache-Control: no-store` on all responses
+
 ### Changed
 
 - `packaging/buncker/debian/control` now depends on `python3-yaml` for Compose support

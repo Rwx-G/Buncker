@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import os
+import sys
 import tarfile
 
 import pytest
@@ -530,3 +531,56 @@ class TestImportResponse:
         )
 
         assert "update_deb" not in result
+
+    def test_tar_with_path_traversal_rejected(self, crypto_keys, store, tmp_path):
+        """Tar member with '..' in name is rejected (zip-slip protection)."""
+        aes_key, hmac_key = crypto_keys
+
+        # Build a tar with a malicious path
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            evil = b"malicious content"
+            info = tarfile.TarInfo(name="../../../etc/evil")
+            info.size = len(evil)
+            tar.addfile(info, io.BytesIO(evil))
+        tar_bytes = buf.getvalue()
+        encrypted = _encrypt_response(tar_bytes, aes_key, hmac_key)
+
+        response_path = tmp_path / "evil.tar.enc"
+        response_path.write_bytes(encrypted)
+
+        with pytest.raises(TransferError, match="Unsafe tar member"):
+            import_response(
+                response_path,
+                aes_key=aes_key,
+                hmac_key=hmac_key,
+                store=store,
+            )
+
+    @pytest.mark.skipif(
+        sys.version_info >= (3, 12),
+        reason="Python 3.12+ filter='data' safely strips absolute paths",
+    )
+    def test_tar_with_absolute_path_rejected(self, crypto_keys, store, tmp_path):
+        """Tar member with absolute path is rejected on Python < 3.12."""
+        aes_key, hmac_key = crypto_keys
+
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            evil = b"malicious"
+            info = tarfile.TarInfo(name="/etc/passwd")
+            info.size = len(evil)
+            tar.addfile(info, io.BytesIO(evil))
+        tar_bytes = buf.getvalue()
+        encrypted = _encrypt_response(tar_bytes, aes_key, hmac_key)
+
+        response_path = tmp_path / "evil2.tar.enc"
+        response_path.write_bytes(encrypted)
+
+        with pytest.raises(TransferError, match="Unsafe tar member"):
+            import_response(
+                response_path,
+                aes_key=aes_key,
+                hmac_key=hmac_key,
+                store=store,
+            )
