@@ -1,14 +1,17 @@
 """Comprehensive tests for shared.crypto module."""
 
 import os
+from pathlib import Path
 
 import pytest
 
 from shared.crypto import (
     CryptoError,
     decrypt,
+    decrypt_env_value,
     derive_keys,
     encrypt,
+    encrypt_env_value,
     generate_mnemonic,
     sign,
     split_mnemonic,
@@ -193,6 +196,56 @@ class TestSignVerify:
     def test_verify_wrong_data(self, hmac_key: bytes) -> None:
         sig = sign(b"original", hmac_key)
         assert verify(b"tampered", hmac_key, sig) is False
+
+
+class TestEnvEncryption:
+    """Tests for machine-id based env value encryption."""
+
+    def test_roundtrip(self, tmp_path: Path) -> None:
+        """Encrypt then decrypt returns original value."""
+        mid = tmp_path / "machine-id"
+        mid.write_text("abcdef1234567890abcdef1234567890\n")
+        mnemonic = "alpha bravo charlie delta echo foxtrot"
+        encrypted = encrypt_env_value(mnemonic, machine_id_path=str(mid))
+        decrypted = decrypt_env_value(encrypted, machine_id_path=str(mid))
+        assert decrypted == mnemonic
+
+    def test_different_machines_produce_different_ciphertext(
+        self, tmp_path: Path
+    ) -> None:
+        mid1 = tmp_path / "mid1"
+        mid1.write_text("aaaa1111aaaa1111aaaa1111aaaa1111\n")
+        mid2 = tmp_path / "mid2"
+        mid2.write_text("bbbb2222bbbb2222bbbb2222bbbb2222\n")
+        value = "secret mnemonic"
+        ct1 = encrypt_env_value(value, machine_id_path=str(mid1))
+        ct2 = encrypt_env_value(value, machine_id_path=str(mid2))
+        # Different machines -> different ciphertext
+        assert ct1 != ct2
+
+    def test_wrong_machine_fails_decrypt(self, tmp_path: Path) -> None:
+        mid1 = tmp_path / "mid1"
+        mid1.write_text("aaaa1111aaaa1111aaaa1111aaaa1111\n")
+        mid2 = tmp_path / "mid2"
+        mid2.write_text("bbbb2222bbbb2222bbbb2222bbbb2222\n")
+        ct = encrypt_env_value("secret", machine_id_path=str(mid1))
+        with pytest.raises(CryptoError, match="Failed to decrypt"):
+            decrypt_env_value(ct, machine_id_path=str(mid2))
+
+    def test_missing_machine_id_raises(self, tmp_path: Path) -> None:
+        missing = str(tmp_path / "nonexistent")
+        with pytest.raises(CryptoError, match="not found"):
+            encrypt_env_value("test", machine_id_path=missing)
+
+    def test_output_is_base64(self, tmp_path: Path) -> None:
+        import base64
+
+        mid = tmp_path / "machine-id"
+        mid.write_text("abcdef1234567890abcdef1234567890\n")
+        ct = encrypt_env_value("hello", machine_id_path=str(mid))
+        # Should be valid base64
+        decoded = base64.b64decode(ct)
+        assert len(decoded) > 0
 
 
 class TestCryptoError:

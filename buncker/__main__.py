@@ -15,7 +15,13 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 
 from buncker.config import load_config, save_config
-from shared.crypto import derive_keys, generate_mnemonic, split_mnemonic
+from shared.crypto import (
+    decrypt_env_value,
+    derive_keys,
+    encrypt_env_value,
+    generate_mnemonic,
+    split_mnemonic,
+)
 from shared.logging import setup_logging
 
 # ANSI color codes
@@ -276,10 +282,17 @@ def _cmd_setup(args: argparse.Namespace) -> None:
     }
     save_config(config, config_path)
 
-    # Save mnemonic to env file for systemd
+    # Save mnemonic to env file for systemd (encrypted at rest)
     env_path = config_path.parent / "env"
     env_path.parent.mkdir(parents=True, exist_ok=True)
-    env_path.write_text(f"BUNCKER_MNEMONIC={mnemonic}\n", encoding="utf-8")
+    try:
+        encrypted_mnemonic = encrypt_env_value(mnemonic)
+        env_path.write_text(
+            f"BUNCKER_MNEMONIC_ENC={encrypted_mnemonic}\n", encoding="utf-8"
+        )
+    except Exception:
+        # Fallback to cleartext if machine-id unavailable (dev/test)
+        env_path.write_text(f"BUNCKER_MNEMONIC={mnemonic}\n", encoding="utf-8")
     import contextlib
 
     with contextlib.suppress(OSError):
@@ -652,13 +665,23 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         _check_tls_cert_expiry(config)
 
     # Get mnemonic from env or stdin
-    mnemonic = os.environ.get("BUNCKER_MNEMONIC")
+    # Priority: BUNCKER_MNEMONIC_ENC (encrypted) > BUNCKER_MNEMONIC (cleartext) > stdin
+    mnemonic = None
+    enc_value = os.environ.get("BUNCKER_MNEMONIC_ENC")
+    if enc_value:
+        try:
+            mnemonic = decrypt_env_value(enc_value)
+        except Exception as exc:
+            print(f"Error: failed to decrypt mnemonic from env: {exc}")
+            sys.exit(1)
+    if not mnemonic:
+        mnemonic = os.environ.get("BUNCKER_MNEMONIC")
     if not mnemonic:
         try:
             mnemonic = input("Enter mnemonic: ").strip()
         except EOFError:
             print(
-                "Error: mnemonic required (set BUNCKER_MNEMONIC or provide via stdin)"
+                "Error: mnemonic required (set BUNCKER_MNEMONIC_ENC or provide via stdin)"
             )
             sys.exit(1)
 
@@ -766,6 +789,20 @@ def _cmd_rotate_keys(args: argparse.Namespace) -> None:
 
     save_config(config, config_path)
 
+    # Update env file with encrypted mnemonic
+    env_path = config_path.parent / "env"
+    try:
+        encrypted_mnemonic = encrypt_env_value(mnemonic)
+        env_path.write_text(
+            f"BUNCKER_MNEMONIC_ENC={encrypted_mnemonic}\n", encoding="utf-8"
+        )
+    except Exception:
+        env_path.write_text(f"BUNCKER_MNEMONIC={mnemonic}\n", encoding="utf-8")
+    import contextlib
+
+    with contextlib.suppress(OSError):
+        env_path.chmod(0o600)
+
     print("Keys rotated successfully.")
     print()
     print("IMPORTANT: Write down the following NEW 16-word mnemonic.")
@@ -854,6 +891,16 @@ def _cmd_proxy(args: argparse.Namespace) -> None:
         file_data = import_file.read_bytes()
         result = _admin_post_binary(f"{base}/admin/import", file_data)
         print(json.dumps(result, indent=2))
+
+        # Notify about available .deb update (FR15)
+        update_deb = result.get("update_deb")
+        if update_deb:
+            print()
+            print(
+                f"  {_c('UPDATE AVAILABLE:', _BOLD + _YELLOW)} "
+                f"A new .deb was included in this transfer."
+            )
+            print(f"  Install with: sudo dpkg -i {update_deb}")
 
         if getattr(args, "cleanup", False) and result.get("imported", 0) > 0:
             import_file.unlink()

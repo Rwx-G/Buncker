@@ -29,7 +29,7 @@
 - Online: registry credentials via env vars only, never plaintext in config
 
 ## Secrets Management
-- Mnemonic: communicated once via human channel, never stored in cleartext
+- Mnemonic: communicated once via human channel, encrypted at rest in `/etc/buncker/env` using a key derived from `/etc/machine-id` (AES-256-GCM, PBKDF2 with 100,000 iterations). Protects against disk theft and unencrypted backups. Fallback to cleartext if machine-id is unavailable (development/testing)
 - Derived keys: in-memory only during execution, never written to disk
 - Config stores only verification hashes and salts
 - API tokens: separate from mnemonic, stored in restricted file (0600), not derived from mnemonic
