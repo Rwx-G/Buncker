@@ -862,6 +862,173 @@ class TestNotFoundRoutes:
             srv.stop()
 
 
+class TestOciRestriction:
+    """Tests for --restrict-oci mode (Story 7.4)."""
+
+    _TOKENS = {"readonly": "ro_" + "a" * 61, "admin": "ad_" + "b" * 61}
+
+    def _make_restricted_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+            api_tokens=dict(self._TOKENS),
+            api_enabled=True,
+            oci_restrict=True,
+        )
+        srv.start()
+        return srv
+
+    def _make_unrestricted_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+            api_tokens=dict(self._TOKENS),
+            api_enabled=True,
+            oci_restrict=False,
+        )
+        srv.start()
+        return srv
+
+    def test_v2_root_returns_401_without_token_when_restricted(self, tmp_path):
+        srv = self._make_restricted_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/"
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(url)
+            assert exc_info.value.code == 401
+            # Must include WWW-Authenticate header per OCI spec
+            www_auth = exc_info.value.headers.get("WWW-Authenticate", "")
+            assert 'Bearer realm="buncker"' in www_auth
+        finally:
+            srv.stop()
+
+    def test_v2_root_succeeds_with_readonly_token(self, tmp_path):
+        srv = self._make_restricted_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/"
+            req = urllib.request.Request(
+                url,
+                headers={"Authorization": f"Bearer {self._TOKENS['readonly']}"},
+            )
+            resp = urllib.request.urlopen(req)
+            assert resp.status == 200
+        finally:
+            srv.stop()
+
+    def test_v2_root_succeeds_with_admin_token(self, tmp_path):
+        srv = self._make_restricted_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/"
+            req = urllib.request.Request(
+                url,
+                headers={"Authorization": f"Bearer {self._TOKENS['admin']}"},
+            )
+            resp = urllib.request.urlopen(req)
+            assert resp.status == 200
+        finally:
+            srv.stop()
+
+    def test_manifest_returns_401_without_token_when_restricted(self, tmp_path):
+        srv = self._make_restricted_server(tmp_path)
+        try:
+            url = (
+                f"http://127.0.0.1:{srv.port}"
+                "/v2/library/nginx/manifests/latest"
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(url)
+            assert exc_info.value.code == 401
+            www_auth = exc_info.value.headers.get("WWW-Authenticate", "")
+            assert 'Bearer realm="buncker"' in www_auth
+        finally:
+            srv.stop()
+
+    def test_blob_returns_401_without_token_when_restricted(self, tmp_path):
+        srv = self._make_restricted_server(tmp_path)
+        try:
+            digest = "sha256:" + "a" * 64
+            url = (
+                f"http://127.0.0.1:{srv.port}"
+                f"/v2/library/test/blobs/{digest}"
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(url)
+            assert exc_info.value.code == 401
+        finally:
+            srv.stop()
+
+    def test_blob_get_with_readonly_token(self, tmp_path):
+        """Readonly token can pull blobs in restricted mode."""
+        srv = self._make_restricted_server(tmp_path)
+        blob_data = b"restricted blob test"
+        digest = f"sha256:{hashlib.sha256(blob_data).hexdigest()}"
+        srv.store.import_blob(blob_data, digest)
+        try:
+            url = (
+                f"http://127.0.0.1:{srv.port}"
+                f"/v2/library/test/blobs/{digest}"
+            )
+            req = urllib.request.Request(
+                url,
+                headers={"Authorization": f"Bearer {self._TOKENS['readonly']}"},
+            )
+            resp = urllib.request.urlopen(req)
+            assert resp.status == 200
+            assert resp.read() == blob_data
+        finally:
+            srv.stop()
+
+    def test_default_mode_no_auth_required(self, tmp_path):
+        """When oci_restrict=False, /v2/* endpoints are open."""
+        srv = self._make_unrestricted_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/"
+            resp = urllib.request.urlopen(url)
+            assert resp.status == 200
+        finally:
+            srv.stop()
+
+    def test_head_returns_401_without_token_when_restricted(self, tmp_path):
+        srv = self._make_restricted_server(tmp_path)
+        try:
+            url = (
+                f"http://127.0.0.1:{srv.port}"
+                "/v2/library/nginx/manifests/latest"
+            )
+            req = urllib.request.Request(url, method="HEAD")
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 401
+        finally:
+            srv.stop()
+
+    def test_invalid_token_returns_401(self, tmp_path):
+        srv = self._make_restricted_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/v2/"
+            req = urllib.request.Request(
+                url,
+                headers={"Authorization": "Bearer invalidtoken"},
+            )
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(req)
+            assert exc_info.value.code == 401
+        finally:
+            srv.stop()
+
+
 class TestManifestRoute:
     """Tests for manifest HEAD and GET routes."""
 

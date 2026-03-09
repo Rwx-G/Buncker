@@ -234,6 +234,7 @@ def authenticate_request(
     handler,
     tokens: dict[str, str] | None,
     api_enabled: bool,
+    oci_restrict: bool = False,
 ) -> str:
     """Authenticate an HTTP request and return the auth level.
 
@@ -241,6 +242,7 @@ def authenticate_request(
         handler: The BaseHTTPRequestHandler instance.
         tokens: Loaded API tokens dict, or None if not configured.
         api_enabled: Whether API auth is enabled in config.
+        oci_restrict: Whether OCI endpoints require auth.
 
     Returns:
         Auth level string: 'admin', 'readonly', or 'local'.
@@ -251,11 +253,13 @@ def authenticate_request(
     path = handler.path.split("?")[0]
     method = handler.command
 
-    # OCI endpoints are always unauthenticated
+    # OCI endpoints: unauthenticated unless restrict mode is on
     if path.startswith("/v2"):
-        return "local"
-
-    required_level = get_required_level(path, method)
+        if not oci_restrict:
+            return "local"
+        required_level = "readonly"
+    else:
+        required_level = get_required_level(path, method)
 
     # If auth is not enabled, all endpoints are open
     if not api_enabled or tokens is None:

@@ -65,7 +65,13 @@ def main() -> None:
     )
 
     # serve
-    subparsers.add_parser("serve", help="Start the HTTP daemon")
+    sub_serve = subparsers.add_parser("serve", help="Start the HTTP daemon")
+    sub_serve.add_argument(
+        "--restrict-oci",
+        action="store_true",
+        default=False,
+        help="Require Bearer token on OCI /v2/* endpoints",
+    )
 
     # analyze
     sub_analyze = subparsers.add_parser(
@@ -671,6 +677,17 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         print("TLS is mandatory when the API is exposed. Run 'buncker api-setup'.")
         sys.exit(1)
 
+    # Determine OCI restriction from flag or config
+    oci_restrict = getattr(args, "restrict_oci", False)
+    if not oci_restrict:
+        oci_restrict = config.get("oci", {}).get("restrict", False)
+
+    # Refuse to start with --restrict-oci if API auth is not enabled
+    if oci_restrict and not api_config.get("enabled"):
+        print("Error: --restrict-oci requires API authentication to be enabled.")
+        print("Run 'buncker api-setup' first to generate tokens and enable auth.")
+        sys.exit(1)
+
     # Check TLS certificate expiry
     if config.get("tls"):
         _check_tls_cert_expiry(config)
@@ -754,6 +771,7 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         api_enabled=api_enabled,
         tls_cert=tls_cert,
         tls_key=tls_key,
+        oci_restrict=oci_restrict,
     )
 
     # Handle SIGTERM/SIGINT

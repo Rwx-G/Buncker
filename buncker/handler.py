@@ -81,6 +81,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
                 self,
                 getattr(self._server_ref, "api_tokens", None),
                 getattr(self._server_ref, "api_enabled", False),
+                oci_restrict=getattr(self._server_ref, "oci_restrict", False),
             )
             self._auth_level = level
             return level
@@ -94,6 +95,15 @@ class BunckerHandler(BaseHTTPRequestHandler):
             self.send_response(e.status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
+            # OCI auth challenge header per Distribution Spec
+            path = urlparse(self.path).path
+            if e.status == 401 and path.startswith("/v2"):
+                self.send_header(
+                    "WWW-Authenticate",
+                    'Bearer realm="buncker",'
+                    'service="buncker",'
+                    'scope="repository:*:pull"',
+                )
             self.end_headers()
             self.wfile.write(body)
             return None
@@ -105,6 +115,11 @@ class BunckerHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         """Route GET requests."""
         path = urlparse(self.path).path
+
+        # Auth check for OCI endpoints when restricted
+        oci_restrict = getattr(self._server_ref, "oci_restrict", False)
+        if path.startswith("/v2") and oci_restrict and self._check_auth() is None:
+            return
 
         if _V2_ROOT.match(path):
             self._handle_v2_root()
@@ -147,6 +162,11 @@ class BunckerHandler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         """Route HEAD requests."""
         path = urlparse(self.path).path
+
+        # Auth check for OCI endpoints when restricted
+        oci_restrict = getattr(self._server_ref, "oci_restrict", False)
+        if path.startswith("/v2") and oci_restrict and self._check_auth() is None:
+            return
 
         if _V2_ROOT.match(path):
             self._handle_v2_root()
