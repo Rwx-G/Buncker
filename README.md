@@ -6,9 +6,9 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License"></a>
   <img src="https://img.shields.io/badge/python-%3E%3D3.11-3776AB.svg?logo=python&logoColor=white" alt="Python">
-  <img src="https://img.shields.io/badge/platform-Debian%2FUbuntu-A81D33.svg?logo=debian&logoColor=white" alt="Platform">
-  <img src="https://img.shields.io/badge/packaging-.deb-orange.svg" alt="Packaging">
-  <img src="https://img.shields.io/badge/status-v0.9.0-brightgreen.svg" alt="Status">
+  <img src="https://img.shields.io/badge/platform-Debian%20%7C%20RHEL%20%7C%20Fedora-A81D33.svg?logo=linux&logoColor=white" alt="Platform">
+  <img src="https://img.shields.io/badge/packaging-.deb%20%7C%20.rpm-orange.svg" alt="Packaging">
+  <img src="https://img.shields.io/badge/status-v1.0.0-brightgreen.svg" alt="Status">
   <img src="https://img.shields.io/badge/coverage-%E2%89%A590%25-brightgreen.svg" alt="Coverage">
 </p>
 
@@ -57,33 +57,45 @@ Both modes use the same transfer pipeline: encrypted request out, blobs fetched 
 
 | Component | Role | Packaging |
 |-----------|------|-----------|
-| **`buncker`** | Offline HTTP daemon - OCI registry + admin API | `.deb` (systemd) |
-| **`buncker-fetch`** | Online CLI - fetch blobs from public registries | `.deb` |
+| **`buncker`** | Offline HTTP daemon - OCI registry + admin API | `.deb` / `.rpm` (systemd) |
+| **`buncker-fetch`** | Online CLI - fetch blobs from public registries | `.deb` / `.rpm` |
 
 ## Requirements
 
-- Debian 12+ / Ubuntu 22.04+
+- Debian 12+ / Ubuntu 22.04+ or RHEL 9+ / Fedora 38+
 - Python >= 3.11
-- `python3-cryptography` (installed via apt, not pip)
+- `python3-cryptography` (installed via apt/dnf, not pip)
 
 ## Installation
 
-### From .deb packages (recommended)
+### From .deb packages (Debian/Ubuntu)
 
 Download the latest `.deb` files from [GitHub Releases](https://github.com/Rwx-G/Buncker/releases):
 
 ```bash
 # Offline machine
-sudo dpkg -i buncker_0.9.0_all.deb
+sudo dpkg -i buncker_1.0.0_all.deb
 
 # Online machine
-sudo dpkg -i buncker-fetch_0.9.0_all.deb
+sudo dpkg -i buncker-fetch_1.0.0_all.deb
 ```
 
 If dependencies are missing, fix them with:
 
 ```bash
 sudo apt-get install -f
+```
+
+### From .rpm packages (RHEL/Fedora)
+
+Download the latest `.rpm` files from [GitHub Releases](https://github.com/Rwx-G/Buncker/releases):
+
+```bash
+# Offline machine
+sudo dnf install buncker-1.0.0-1.noarch.rpm
+
+# Online machine
+sudo dnf install buncker-fetch-1.0.0-1.noarch.rpm
 ```
 
 ### From source (development)
@@ -311,6 +323,8 @@ references as in Approach 1.
 | `gc.inactive_days_threshold` | int | `90` | GC inactivity threshold in days |
 | `log_level` | string | `"INFO"` | Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
 | `transfer_path` | string | `""` | Default directory for transfer files (empty = cwd) |
+| `manifest_ttl` | int | `30` | Days before cached manifests are considered stale |
+| `oci.restrict` | bool | `false` | Require Bearer token on `/v2/*` OCI endpoints |
 
 ### Online CLI (`~/.buncker/config.json`)
 
@@ -330,6 +344,7 @@ references as in Approach 1.
 | `buncker serve` | Start the HTTP daemon (reads mnemonic from `BUNCKER_MNEMONIC` env or stdin) |
 | `buncker prepare <Dockerfile>` | Analyze + generate transfer request in one step |
 | `buncker analyze <Dockerfile>` | Analyze Dockerfile and identify missing blobs |
+| `buncker analyze --compose <file>` | Analyze docker-compose.yml and resolve all service images |
 | `buncker generate-manifest` | Generate an encrypted transfer request |
 | `buncker import [file.tar.enc]` | Import an encrypted transfer response (auto-scans `transfer_path` if omitted, `--cleanup` deletes file after success) |
 | `buncker status` | Show registry status (blob count, store size) |
@@ -351,6 +366,9 @@ references as in Approach 1.
 | `--build-arg KEY=VALUE` | Build argument for `analyze` and `prepare` (repeatable) |
 | `--output <path>` | Output directory for `generate-manifest` and `prepare` |
 | `--inactive-days N` | GC inactivity threshold (default: 90) |
+| `--compose <file>` | Docker Compose file for `analyze` (resolves all services) |
+| `--restrict-oci` | Require Bearer token on `/v2/*` OCI endpoints (`serve`) |
+| `--refresh-stale` | Include stale manifests for re-download (`generate-manifest`) |
 | `--operator <name>` | Operator name for GC audit trail |
 | `--grace-period N` | Key rotation grace period in days (default: 30) |
 | `--cert <path>` | TLS certificate for `api-setup` |
@@ -469,21 +487,44 @@ unavailable, the only option is `buncker rotate-keys` to generate a new
 mnemonic. There is no way to extract the original mnemonic from the config.
 After rotation, re-pair the online machine with `buncker-fetch pair`.
 
-### OCI endpoints (`/v2/*`) are unauthenticated
+### OCI endpoints (`/v2/*`)
 
-The OCI Distribution API endpoints (`/v2/`, `/v2/<name>/manifests/`,
-`/v2/<name>/blobs/`) are always unauthenticated, even when API auth is
-enabled. This is by design - Docker clients need direct access to pull
-images without Bearer token configuration.
+By default, the OCI Distribution API endpoints (`/v2/`, `/v2/<name>/manifests/`,
+`/v2/<name>/blobs/`) are unauthenticated, even when API auth is enabled.
+Docker clients can pull images without Bearer token configuration.
 
-**Implications:**
+**For high-security environments**, use `--restrict-oci` to require
+authentication on OCI endpoints:
+
+```bash
+buncker serve --restrict-oci
+```
+
+This requires `api-setup` to be configured first (tokens + TLS). Docker
+clients authenticate via `hosts.toml`:
+
+```toml
+# /etc/docker/certs.d/buncker:5000/hosts.toml
+server = "https://buncker:5000"
+
+[host."https://buncker:5000"]
+  capabilities = ["pull"]
+  ca = "/path/to/ca.pem"
+  [host."https://buncker:5000".header]
+    Authorization = ["Bearer <readonly-token>"]
+```
+
+When restricted, unauthenticated requests receive a 401 with a standard
+`WWW-Authenticate: Bearer` challenge per the OCI Distribution Spec.
+
+**Default mode implications:**
 
 - Any machine on the offline LAN can pull images from buncker
 - Image content is not confidential in most air-gapped scenarios (the
   threat model protects integrity and provenance, not secrecy)
-- If you need to restrict OCI access, use network-level controls
-  (firewall rules, VLAN segmentation) to limit which hosts can reach
-  port 5000
+- For additional access control without `--restrict-oci`, use network-level
+  controls (firewall rules, VLAN segmentation) to limit which hosts can
+  reach port 5000
 
 ### Admin API protection
 
@@ -519,6 +560,7 @@ pip install ruff pytest cryptography
 make lint       # ruff check + format verification
 make test       # run pytest suite
 make build-deb  # build .deb packages to dist/
+make build-rpm  # build .rpm packages to dist/
 make clean      # remove build artifacts
 ```
 
@@ -538,11 +580,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| Docker Compose support | `buncker analyze --compose docker-compose.yml` to extract `image:` and `build.dockerfile` from all services | Planned |
-| RPM packaging | `.rpm` packages for RHEL/Fedora enterprise environments | Planned |
-| Log rotation | `logrotate.d/buncker` config shipped in .deb/.rpm for `/var/log/buncker/` | Planned |
-| OCI auth restriction | `--restrict-oci` flag to require read-only token on `/v2/*` endpoints (high-security environments) | Planned |
-| Manifest cache TTL | Configurable TTL (default 30d) on offline manifest cache with staleness warning and `--refresh-stale` flag | Planned |
+| Docker Compose support | `buncker analyze --compose docker-compose.yml` to extract `image:` and `build.dockerfile` from all services | Done (v1.0.0) |
+| RPM packaging | `.rpm` packages for RHEL/Fedora enterprise environments | Done (v1.0.0) |
+| Log rotation | `logrotate.d/buncker` config shipped in .deb/.rpm for `/var/log/buncker/` | Done (v1.0.0) |
+| OCI auth restriction | `--restrict-oci` flag to require read-only token on `/v2/*` endpoints (high-security environments) | Done (v1.0.0) |
+| Manifest cache TTL | Configurable TTL (default 30d) on offline manifest cache with staleness warning and `--refresh-stale` flag | Done (v1.0.0) |
 
 ## License
 
