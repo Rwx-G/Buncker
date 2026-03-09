@@ -600,7 +600,9 @@ OCI endpoints are **always unauthenticated** regardless of auth configuration.
 | POST | `/admin/import` | Import response.tar.enc (local CLI, multipart/form-data) | Admin |
 | PUT | `/admin/import` | Streaming upload of response.tar.enc (remote, `curl -T`) | Admin |
 | GET | `/admin/status` | Store state + disk usage | Read-only |
+| GET | `/admin/health` | Health check (store integrity, disk, TLS cert expiry, uptime) | Read-only |
 | GET | `/admin/gc/report` | GC candidates report | Read-only |
+| POST | `/admin/gc/impact` | Impact analysis before deletion (affected images) | Admin |
 | POST | `/admin/gc/execute` | Execute GC (requires operator + digests) | Admin |
 | GET | `/admin/logs` | Query logs (filter by event, since, limit) | Read-only |
 
@@ -912,7 +914,7 @@ class TransferError(BunckerError): ...
 - Online: registry credentials via env vars only, never plaintext in config
 
 ### Secrets Management
-- Mnemonic: communicated once via human channel, never stored in cleartext
+- Mnemonic: communicated once via human channel, encrypted at rest in `/etc/buncker/env` using a key derived from `/etc/machine-id` (AES-256-GCM, PBKDF2 with 100,000 iterations). Protects against disk theft and unencrypted backups
 - Derived keys: in-memory only during execution, never written to disk
 - Config stores only verification hashes and salts
 - API tokens: separate from mnemonic, stored in restricted file (0600), not derived from mnemonic
