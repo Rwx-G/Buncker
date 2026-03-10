@@ -42,8 +42,25 @@
 - Store blobs: cleartext on disk (disk encryption is OS responsibility)
 - TLS: operator-provided certificate (internal/external CA) or auto-signed with explicit security warning
 
+## Network Binding
+- Default bind address: `127.0.0.1` (localhost only)
+- `buncker api-setup` switches to `0.0.0.0` (all interfaces) when activating API auth + TLS
+- Before api-setup, the daemon is only reachable from the local machine (direct CLI mode)
+- After api-setup, LAN clients can connect via HTTPS with Bearer tokens
+- Operators can override bind address manually in config.json for custom network topologies
+
+## Package Integrity (no GPG)
+- Transfer files (.json.enc, .tar.enc) are protected by AES-256-GCM + HMAC-SHA256
+- The `--deb` flag in `buncker-fetch fetch` bundles a .deb inside the encrypted response
+- GPG signing of .deb packages is intentionally out of scope:
+  - The offline machine has no internet access and cannot refresh GPG keyrings
+  - Distributing and maintaining a GPG public key on air-gapped hosts adds operational complexity with limited security gain
+  - The encrypted transfer already provides authenticity: only holders of the shared mnemonic can produce valid ciphertext
+  - If the mnemonic is compromised, GPG would not help - the attacker can already forge transfer files
+  - For environments requiring package-level signatures, operators should use their own GPG infrastructure outside of Buncker
+
 ## Dependency Security
-- Single dependency: `python3-cryptography` (Debian-maintained)
-- Any new dependency requires explicit justification + Debian package availability
+- Dependencies: `python3-cryptography` and `python3-yaml` (Debian/RHEL-maintained)
+- Any new dependency requires explicit justification + OS package availability
 
 ---
