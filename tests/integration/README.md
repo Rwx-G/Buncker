@@ -89,7 +89,7 @@ Expected output:
 
   Config:  /etc/buncker/config.json
   Store:   /var/lib/buncker
-  Daemon:  active on 0.0.0.0:5000
+  Daemon:  active on 127.0.0.1:5000
 
 ============================================================
 ```
@@ -106,7 +106,7 @@ BUNCKER_MNEMONIC="<16 words>" buncker serve
 
 Expected output:
 ```
-Buncker serving on 0.0.0.0:5000
+Buncker serving on 127.0.0.1:5000
 ```
 
 Leave this running. Open new terminals for next steps.
@@ -282,7 +282,7 @@ Expected output:
 Buncker registry status:
   Blobs: 5
   Total size: 45.2 MB
-  Listening on: 0.0.0.0:5000
+  Listening on: 127.0.0.1:5000
 ```
 
 ## Automated Test Script

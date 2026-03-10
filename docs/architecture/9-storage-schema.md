@@ -21,7 +21,7 @@
 ```json
 {
   "source_id": "buncker-prod-01",
-  "bind": "0.0.0.0",
+  "bind": "127.0.0.1",
   "port": 5000,
   "store_path": "/var/lib/buncker",
   "max_workers": 16,

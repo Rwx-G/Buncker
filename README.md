@@ -53,7 +53,7 @@ Both modes use the same transfer pipeline: encrypted request out, blobs fetched 
 | **Full audit trail** | Every operation logged in structured JSON Lines |
 | **Compose support** | Analyze `docker-compose.yml` to resolve all service images at once |
 | **Manifest staleness** | Configurable TTL warns when cached manifests are outdated, `--refresh-stale` re-fetches them |
-| **Zero exotic deps** | Python stdlib + `python3-cryptography` + `python3-yaml` (apt/dnf) |
+| **OS-packaged deps only** | Python stdlib + `python3-cryptography` + `python3-yaml` (apt/dnf) |
 
 ## Components
 
@@ -67,6 +67,10 @@ Both modes use the same transfer pipeline: encrypted request out, blobs fetched 
 - Debian 12+ / Ubuntu 22.04+ or RHEL 9+ / Fedora 38+
 - Python >= 3.11
 - `python3-cryptography` and `python3-yaml` (installed via apt/dnf, not pip)
+
+> **Windows / macOS**: Buncker requires Linux. On Windows, use
+> [WSL2](https://learn.microsoft.com/en-us/windows/wsl/) with a Debian or
+> Ubuntu distribution. There is no native Windows or macOS build.
 
 ## Installation
 
@@ -139,7 +143,7 @@ Expected output:
 
   Config:  /etc/buncker/config.json
   Store:   /var/lib/buncker
-  Daemon:  active on 0.0.0.0:5000
+  Daemon:  active on 127.0.0.1:5000
 
 ============================================================
 ```
@@ -314,7 +318,7 @@ references as in Approach 1.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `source_id` | string | `""` | Unique identifier for this buncker instance |
-| `bind` | string | `"0.0.0.0"` | Listen address (all interfaces - use firewall rules to restrict access) |
+| `bind` | string | `"127.0.0.1"` | Listen address (localhost only; `api-setup` switches to `0.0.0.0` for LAN access) |
 | `port` | int | `5000` | Listen port |
 | `store_path` | string | `"/var/lib/buncker"` | OCI blob store directory |
 | `max_workers` | int | `16` | Thread pool size for HTTP server |
