@@ -290,7 +290,7 @@ def _cmd_setup(args: argparse.Namespace) -> None:
     )
     config = {
         "source_id": f"buncker-{os.urandom(4).hex()}",
-        "bind": "0.0.0.0",
+        "bind": "127.0.0.1",
         "port": 5000,
         "store_path": store_path,
         "max_workers": 16,
@@ -335,7 +335,7 @@ def _cmd_setup(args: argparse.Namespace) -> None:
             check=True,
             capture_output=True,
         )
-        bind = config.get("bind", "0.0.0.0")
+        bind = config.get("bind", "127.0.0.1")
         port = config.get("port", 5000)
         daemon_status = f"active on {bind}:{port}"
         print(_c("done", _GREEN))
@@ -470,6 +470,7 @@ def _cmd_api_setup(args: argparse.Namespace) -> None:
     )
     config["api"] = {"enabled": True}
     config["tls"] = True
+    config["bind"] = "0.0.0.0"
     save_config(config, config_path)
     print(_c("done", _GREEN))
 
@@ -766,7 +767,7 @@ def _cmd_serve(args: argparse.Namespace) -> None:
 
     store = Store(Path(config["store_path"]))
     server = BunckerServer(
-        bind=config.get("bind", "0.0.0.0"),
+        bind=config.get("bind", "127.0.0.1"),
         port=config.get("port", 5000),
         store=store,
         max_workers=config.get("max_workers", 16),

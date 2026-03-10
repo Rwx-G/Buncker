@@ -87,7 +87,7 @@ class BunckerServer:
 
     def __init__(
         self,
-        bind: str = "0.0.0.0",
+        bind: str = "127.0.0.1",
         port: int = 5000,
         *,
         store: Store,
