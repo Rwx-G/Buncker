@@ -11,7 +11,7 @@ _DEFAULT_CONFIG_PATH = Path("/etc/buncker/config.json")
 
 _DEFAULTS = {
     "source_id": "",
-    "bind": "0.0.0.0",
+    "bind": "127.0.0.1",
     "port": 5000,
     "store_path": "/var/lib/buncker",
     "max_workers": 16,

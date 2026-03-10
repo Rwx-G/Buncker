@@ -30,7 +30,7 @@
 Enter mnemonic:
 ```
 
-(daemon starts listening on 0.0.0.0:5000, no further stdout)
+(daemon starts listening on 127.0.0.1:5000, no further stdout)
 
 ## buncker-fetch pair
 

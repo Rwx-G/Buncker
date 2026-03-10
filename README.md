@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/python-%3E%3D3.11-3776AB.svg?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/platform-Debian%20%7C%20RHEL%20%7C%20Fedora-A81D33.svg?logo=linux&logoColor=white" alt="Platform">
   <img src="https://img.shields.io/badge/packaging-.deb%20%7C%20.rpm-orange.svg" alt="Packaging">
-  <img src="https://img.shields.io/badge/status-v1.0.0-brightgreen.svg" alt="Status">
+  <img src="https://img.shields.io/badge/status-v1.0.1-brightgreen.svg" alt="Status">
   <img src="https://img.shields.io/badge/coverage-%E2%89%A590%25-brightgreen.svg" alt="Coverage">
 </p>
 
@@ -53,7 +53,7 @@ Both modes use the same transfer pipeline: encrypted request out, blobs fetched 
 | **Full audit trail** | Every operation logged in structured JSON Lines |
 | **Compose support** | Analyze `docker-compose.yml` to resolve all service images at once |
 | **Manifest staleness** | Configurable TTL warns when cached manifests are outdated, `--refresh-stale` re-fetches them |
-| **Zero exotic deps** | Python stdlib + `python3-cryptography` + `python3-yaml` (apt/dnf) |
+| **OS-packaged deps only** | Python stdlib + `python3-cryptography` + `python3-yaml` (apt/dnf) |
 
 ## Components
 
@@ -68,6 +68,10 @@ Both modes use the same transfer pipeline: encrypted request out, blobs fetched 
 - Python >= 3.11
 - `python3-cryptography` and `python3-yaml` (installed via apt/dnf, not pip)
 
+> **Windows / macOS**: Buncker requires Linux. On Windows, use
+> [WSL2](https://learn.microsoft.com/en-us/windows/wsl/) with a Debian or
+> Ubuntu distribution. There is no native Windows or macOS build.
+
 ## Installation
 
 ### From .deb packages (Debian/Ubuntu)
@@ -76,10 +80,10 @@ Download the latest `.deb` files from [GitHub Releases](https://github.com/Rwx-G
 
 ```bash
 # Offline machine
-sudo dpkg -i buncker_1.0.0_all.deb
+sudo dpkg -i buncker_1.0.1_all.deb
 
 # Online machine
-sudo dpkg -i buncker-fetch_1.0.0_all.deb
+sudo dpkg -i buncker-fetch_1.0.1_all.deb
 ```
 
 If dependencies are missing, fix them with:
@@ -94,10 +98,10 @@ Download the latest `.rpm` files from [GitHub Releases](https://github.com/Rwx-G
 
 ```bash
 # Offline machine
-sudo dnf install buncker-1.0.0-1.noarch.rpm
+sudo dnf install buncker-1.0.1-1.noarch.rpm
 
 # Online machine
-sudo dnf install buncker-fetch-1.0.0-1.noarch.rpm
+sudo dnf install buncker-fetch-1.0.1-1.noarch.rpm
 ```
 
 ### From source (development)
@@ -139,7 +143,7 @@ Expected output:
 
   Config:  /etc/buncker/config.json
   Store:   /var/lib/buncker
-  Daemon:  active on 0.0.0.0:5000
+  Daemon:  active on 127.0.0.1:5000
 
 ============================================================
 ```
@@ -314,7 +318,7 @@ references as in Approach 1.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `source_id` | string | `""` | Unique identifier for this buncker instance |
-| `bind` | string | `"0.0.0.0"` | Listen address (all interfaces - use firewall rules to restrict access) |
+| `bind` | string | `"127.0.0.1"` | Listen address (localhost only; `api-setup` switches to `0.0.0.0` for LAN access) |
 | `port` | int | `5000` | Listen port |
 | `store_path` | string | `"/var/lib/buncker"` | OCI blob store directory |
 | `max_workers` | int | `16` | Thread pool size for HTTP server |

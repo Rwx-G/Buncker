@@ -17,7 +17,7 @@ class TestLoadConfig:
         config_path = tmp_path / "config.json"
         # No file -> defaults
         config = load_config(config_path)
-        assert config["bind"] == "0.0.0.0"
+        assert config["bind"] == "127.0.0.1"
         assert config["port"] == 5000
         assert config["max_workers"] == 16
         assert config["tls"] is False
@@ -37,7 +37,7 @@ class TestLoadConfig:
         assert config["port"] == 8080
         assert config["source_id"] == "my-buncker"
         # Defaults still present for unset keys
-        assert config["bind"] == "0.0.0.0"
+        assert config["bind"] == "127.0.0.1"
         assert config["max_workers"] == 16
 
     def test_invalid_json_raises(self, tmp_path):

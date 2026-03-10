@@ -9,7 +9,8 @@
 | Category | Technology | Version | Purpose | Rationale |
 |----------|-----------|---------|---------|-----------|
 | **Language** | Python | >=3.11 | Sole language for both packages | Rich stdlib, native on Debian 12 |
-| **Crypto** | python3-cryptography | >=41.0 (apt) | AES-256-GCM, optional TLS cert gen | Only external dependency. Installed via apt, not pip |
+| **Crypto** | python3-cryptography | >=41.0 (apt) | AES-256-GCM, optional TLS cert gen | OS-packaged dependency. Installed via apt, not pip |
+| **Config** | python3-yaml (PyYAML) | >=5.0 (apt) | Docker Compose YAML parsing | OS-packaged dependency. Installed via apt, not pip |
 | **HTTP Server** | ThreadingHTTPServer + ThreadPoolExecutor | stdlib | Permanent daemon for OCI + Admin API | Zero dependency. Bounded thread pool (max_workers=16 configurable) |
 | **HTTP Client** | urllib.request | stdlib | Fetch blobs from public registries | Native HTTPS, certificate verification by default |
 | **Hashing** | hashlib | stdlib | SHA256 (blob digests), PBKDF2 (key derivation) | Standard, performant |

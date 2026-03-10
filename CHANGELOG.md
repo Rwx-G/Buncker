@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-03-10
+
+### Fixed
+
+- Default bind address changed from `0.0.0.0` to `127.0.0.1` to prevent accidental exposure on multi-VLAN networks
+- `buncker api-setup` now switches bind to `0.0.0.0` when activating API auth + TLS for LAN client access
+
+### Changed
+
+- README feature pitch renamed from "Zero exotic deps" to "OS-packaged deps only"
+
+### Added
+
+- Windows/WSL2 requirement note in README
+- Security documentation: GPG out-of-scope rationale and network binding defaults
+- `python3-yaml` added to tech stack documentation
+
 ## [1.0.0] - 2026-03-09
 
 ### Added
@@ -283,7 +300,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/Rwx-G/Buncker/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Rwx-G/Buncker/compare/v0.9.0...v1.0.0
 [0.9.0]: https://github.com/Rwx-G/Buncker/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Rwx-G/Buncker/compare/v0.8.0...v0.8.1
