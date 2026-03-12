@@ -335,13 +335,15 @@ class TestRemoteDockerfileAnalysis:
                 data=data,
                 headers={"Content-Type": "application/json"},
             )
-            urllib.request.urlopen(req)
+            resp_analyze = urllib.request.urlopen(req)
+            analysis_id = json.loads(resp_analyze.read())["analysis_id"]
 
             # Then generate manifest
             url2 = f"http://127.0.0.1:{srv.port}/admin/generate-manifest"
+            gen_data = json.dumps({"analysis_id": analysis_id}).encode()
             req2 = urllib.request.Request(
                 url2,
-                data=b"{}",
+                data=gen_data,
                 headers={"Content-Type": "application/json"},
             )
             resp = urllib.request.urlopen(req2)
@@ -1314,12 +1316,14 @@ class TestImportNoCryptoKeys:
             req = urllib.request.Request(
                 url, data=data, headers={"Content-Type": "application/json"}
             )
-            urllib.request.urlopen(req)
+            resp_analyze = urllib.request.urlopen(req)
+            analysis_id = json.loads(resp_analyze.read())["analysis_id"]
 
             # Then try generate without crypto keys
             url2 = f"http://127.0.0.1:{srv.port}/admin/generate-manifest"
+            gen_data = json.dumps({"analysis_id": analysis_id}).encode()
             req2 = urllib.request.Request(
-                url2, data=b"{}", headers={"Content-Type": "application/json"}
+                url2, data=gen_data, headers={"Content-Type": "application/json"}
             )
             with pytest.raises(HTTPError) as exc_info:
                 urllib.request.urlopen(req2)
