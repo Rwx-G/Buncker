@@ -899,3 +899,110 @@ class TestRateLimiter:
             assert "Retry-After" in headers
         finally:
             srv.stop()
+
+    def test_oci_rate_limit_returns_429(self, store, tmp_path):
+        """OCI rate limiter returns 429 on manifest/blob endpoints."""
+        # Import a blob so we have something to request
+        blob_data = b"oci-rate-limit-test"
+        digest = f"sha256:{hashlib.sha256(blob_data).hexdigest()}"
+        store.import_blob(blob_data, digest)
+
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test-oci-rl",
+            log_path=tmp_path / "buncker.log",
+        )
+        # Set a very low OCI rate limit for testing
+        srv.oci_rate_limiter._max = 2
+        srv.start()
+        url = f"http://127.0.0.1:{srv.port}"
+
+        try:
+            # First 2 OCI requests should succeed
+            for _ in range(2):
+                status, _, _ = _get(f"{url}/v2/library/test/blobs/{digest}")
+                assert status == 200
+
+            # Third request should be rate limited
+            status, body, headers = _get(
+                f"{url}/v2/library/test/blobs/{digest}"
+            )
+            assert status == 429
+            data = json.loads(body)
+            assert data["errors"][0]["code"] == "TOOMANYREQUESTS"
+            assert "Retry-After" in headers
+        finally:
+            srv.stop()
+
+    def test_oci_rate_limit_does_not_affect_v2_root(self, store, tmp_path):
+        """Rate limiter does not block /v2/ root endpoint."""
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test-oci-rl2",
+            log_path=tmp_path / "buncker.log",
+        )
+        srv.oci_rate_limiter._max = 1
+        srv.start()
+        url = f"http://127.0.0.1:{srv.port}"
+
+        try:
+            # Exhaust rate limit
+            _get(f"{url}/v2/library/test/manifests/latest")
+            # /v2/ root should still work
+            status, _, _ = _get(f"{url}/v2/")
+            assert status == 200
+        finally:
+            srv.stop()
+
+    def test_content_length_invalid_returns_400(self, store, crypto_keys, tmp_path):
+        """Non-integer Content-Length returns 400 instead of 500."""
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            crypto_keys=crypto_keys,
+            source_id="test-cl",
+            log_path=tmp_path / "buncker.log",
+        )
+        srv.start()
+        url = f"http://127.0.0.1:{srv.port}"
+
+        try:
+            # Send POST /admin/analyze with invalid Content-Length
+            req = urllib.request.Request(
+                f"{url}/admin/analyze",
+                data=b'{"dockerfile_content": "FROM alpine"}',
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Length": "not-a-number",
+                },
+                method="POST",
+            )
+            try:
+                resp = urllib.request.urlopen(req)
+                status = resp.status
+            except HTTPError as e:
+                status = e.code
+            # Should get 400 (bad request) not 500
+            assert status == 400
+        finally:
+            srv.stop()
+
+    def test_blob_streaming_large_mock(self, base_url, store):
+        """Verify large blob streaming works without full memory buffering."""
+        # Create a 4 MiB blob (larger than chunk size of 1 MiB)
+        blob_data = os.urandom(4 * 1024 * 1024)
+        digest = f"sha256:{hashlib.sha256(blob_data).hexdigest()}"
+        store.import_blob(blob_data, digest)
+
+        status, body, headers = _get(
+            f"{base_url}/v2/library/large/blobs/{digest}"
+        )
+        assert status == 200
+        assert len(body) == len(blob_data)
+        assert body == blob_data
+        assert headers["Docker-Content-Digest"] == digest
