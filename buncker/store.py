@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import tempfile
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -29,6 +30,7 @@ class Store:
         self._path = path
         self._blobs = path / "blobs" / "sha256"
         self._meta = path / "meta" / "sha256"
+        self._gc_lock = threading.Lock()
 
         self._blobs.mkdir(parents=True, exist_ok=True)
         self._meta.mkdir(parents=True, exist_ok=True)
@@ -212,7 +214,8 @@ class Store:
                     },
                 )
 
-        self._last_gc_report = {c["digest"] for c in candidates}
+        with self._gc_lock:
+            self._last_gc_report = {c["digest"] for c in candidates}
         return candidates
 
     def gc_impact_report(self, digests: list[str]) -> list[dict]:
@@ -311,7 +314,8 @@ class Store:
         Raises:
             StoreError: If a digest is not in the latest report.
         """
-        report = getattr(self, "_last_gc_report", None)
+        with self._gc_lock:
+            report = getattr(self, "_last_gc_report", None)
         if report is None:
             raise StoreError(
                 "No GC report available - run gc_report() first",

@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import sys
+import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -409,6 +410,32 @@ class TestGcExecute:
         messages = [r.message for r in caplog.records]
         assert "gc_candidate" in messages
         assert "gc_executed" in messages
+
+    def test_gc_report_thread_safe(self, tmp_path):
+        """Concurrent gc_report calls do not corrupt _last_gc_report."""
+        store = Store(tmp_path)
+        digests = []
+        for i in range(20):
+            digests.append(_make_old_blob(store, f"blob-{i}".encode(), days_old=60))
+
+        errors: list[Exception] = []
+
+        def run_gc_report():
+            try:
+                store.gc_report(inactive_days=30)
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=run_gc_report) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == []
+        # After all threads complete, report should contain all 20 digests
+        report = getattr(store, "_last_gc_report", set())
+        assert len(report) == 20
 
 
 class TestStoreVerify:
