@@ -3,7 +3,7 @@ Version: 1.0.3
 Section: admin
 Priority: optional
 Architecture: all
-Depends: python3 (>= 3.11), python3-cryptography (>= 38.0), python3-yaml, python3-waitress
+Depends: python3 (>= 3.11), python3-cryptography (>= 38.0), python3-yaml
 Maintainer: Romain G. <buncker@users.noreply.github.com>
 Description: Offline Docker registry for air-gapped environments
  Buncker is an offline OCI-compliant registry daemon that serves

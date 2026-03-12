@@ -11,18 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- HTTP server backend replaced with waitress (production-grade WSGI server) for plain HTTP; stdlib WSGIServer used as TLS fallback since waitress does not support SSL in its async I/O model
-- Handler converted from BaseHTTPRequestHandler to standalone WSGI-compatible class
+- Handler converted from `BaseHTTPRequestHandler` to standalone WSGI-compatible class with streaming support
+- Blob responses now use WSGI streaming iterator instead of full memory buffering, eliminating RAM overhead for large blobs
+- Chunk size increased from 64 KiB to 1 MiB for reduced Python loop overhead on large blob transfers
+- TCP_NODELAY enabled on accepted connections to reduce latency on small responses (manifests, HEAD)
+- Server TCP backlog set to 32 for predictable connection queuing under load
 
 ### Fixed
 
 - GC report/execute race condition: `_last_gc_report` in Store now protected by a threading lock
 - Multi-arch platform resolution in buncker-fetch now supports os/arch/variant format (e.g. `linux/arm/v7`)
 - Reserved `filename` key in log record extra dict renamed to avoid conflict with Python 3.14 stricter logging
-
-### Added
-
-- `python3-waitress` added to buncker .deb package dependencies
 
 ## [1.0.2] - 2026-03-12
 

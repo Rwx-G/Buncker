@@ -26,7 +26,7 @@ _log = logging.getLogger("buncker.handler")
 _DIGEST_RE = re.compile(r"^sha256:[a-f0-9]{64}$")
 _TAG_RE = re.compile(r"^[a-zA-Z0-9._-]{1,128}$")
 _OPERATOR_RE = re.compile(r"^[a-zA-Z0-9._@-]{1,128}$")
-_CHUNK_SIZE = 65536
+_CHUNK_SIZE = 1048576  # 1 MiB
 
 # OCI route patterns
 _V2_ROOT = re.compile(r"^/v2/?$")
@@ -105,6 +105,7 @@ class BunckerHandler:
         self._status_code = 200
         self._response_headers: list[tuple[str, str]] = []
         self.wfile = _ResponseWriter()
+        self._stream_iter = None  # Set by blob handler for streaming
 
     def send_response(self, code: int) -> None:
         self._status_code = code
@@ -381,12 +382,20 @@ class BunckerHandler:
         self.send_header("Content-Length", str(size))
         self.end_headers()
 
-        # Stream blob while computing SHA256 to verify integrity
+        # Stream blob via WSGI iterator (no full buffering in memory).
+        # SHA256 is verified inline; integrity errors are logged after
+        # the response has already started (cannot change status code).
+        self._stream_iter = self._blob_stream(
+            blob_path, digest, store
+        )
+
+    def _blob_stream(self, blob_path: Path, digest: str, store: Store):
+        """Yield blob chunks while verifying SHA256 integrity."""
         h = hashlib.sha256()
         with open(blob_path, "rb") as f:
             while chunk := f.read(_CHUNK_SIZE):
                 h.update(chunk)
-                self.wfile.write(chunk)
+                yield chunk
 
         actual_digest = f"sha256:{h.hexdigest()}"
         if actual_digest != digest:
@@ -1371,6 +1380,10 @@ def create_wsgi_app(server_ref):
         phrase = _STATUS_PHRASES.get(handler._status_code, "OK")
         status = f"{handler._status_code} {phrase}"
         start_response(status, handler._response_headers)
+
+        # Use streaming iterator for blob responses (no memory buffering)
+        if handler._stream_iter is not None:
+            return handler._stream_iter
         return handler.wfile.chunks
 
     return app
