@@ -86,8 +86,6 @@ class BunckerHandler:
     self.send_header, self.end_headers) backed by a WSGI environ dict.
     """
 
-    timeout = 60
-
     def __init__(self, environ: dict, *, server_ref=None):
         self._server_ref = server_ref
         self._auth_level = "local"

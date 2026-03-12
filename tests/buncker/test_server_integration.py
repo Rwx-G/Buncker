@@ -1006,3 +1006,58 @@ class TestRateLimiter:
         assert len(body) == len(blob_data)
         assert body == blob_data
         assert headers["Docker-Content-Digest"] == digest
+
+    def test_slowloris_timeout_closes_connection(self, store, tmp_path):
+        """Socket timeout closes slow connections to free worker threads."""
+        import socket as _socket
+
+        from buncker.server import _QuietWSGIHandler
+
+        original_timeout = _QuietWSGIHandler.timeout
+        _QuietWSGIHandler.timeout = 2  # 2s for test speed
+
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test-slowloris",
+            log_path=tmp_path / "buncker.log",
+        )
+        srv.start()
+
+        try:
+            # Open a raw socket and send a partial HTTP request
+            sock = _socket.create_connection(
+                ("127.0.0.1", srv.port), timeout=10
+            )
+            sock.sendall(b"GET /v2/ HTTP/1.1\r\nHost: localhost\r\n")
+            # Do NOT send final \r\n - request stays incomplete
+
+            # Server should close the connection after timeout
+            sock.settimeout(5)
+            data = sock.recv(4096)
+            # Either empty (closed) or an error response
+            assert data == b"" or b"HTTP" in data
+            sock.close()
+
+            # Server still serves normal requests after slowloris
+            status, _, _ = _get(f"http://127.0.0.1:{srv.port}/v2/")
+            assert status == 200
+        finally:
+            _QuietWSGIHandler.timeout = original_timeout
+            srv.stop()
+
+    def test_blob_streaming_large_5mb(self, base_url, store):
+        """Stream a 5 MiB blob to verify multi-chunk integrity."""
+        blob_data = bytes(range(256)) * (5 * 1024 * 1024 // 256)
+        digest = f"sha256:{hashlib.sha256(blob_data).hexdigest()}"
+        store.import_blob(blob_data, digest)
+
+        status, body, headers = _get(
+            f"{base_url}/v2/library/large5/blobs/{digest}"
+        )
+        assert status == 200
+        assert len(body) == len(blob_data)
+        # Verify SHA256 of received data matches
+        received_digest = f"sha256:{hashlib.sha256(body).hexdigest()}"
+        assert received_digest == digest

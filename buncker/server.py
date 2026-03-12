@@ -50,7 +50,13 @@ class RateLimiter:
 
 
 class _QuietWSGIHandler(WSGIRequestHandler):
-    """WSGIRequestHandler that suppresses default stderr logging."""
+    """WSGIRequestHandler that suppresses default stderr logging.
+
+    Sets a 60-second socket timeout to mitigate slowloris-style
+    thread exhaustion on the bounded worker pool.
+    """
+
+    timeout = 60
 
     def log_request(self, *args, **kwargs):
         pass
@@ -191,6 +197,10 @@ class BunckerServer:
         pool.  The server thread is joined with a 5-second timeout.
         """
         if self._server is not None:
+            _log.info(
+                "server_stopping",
+                extra={"pending_workers": self._server._pool._work_queue.qsize()},
+            )
             self._server.shutdown()
             self._server.server_close()
             if self._thread is not None:
