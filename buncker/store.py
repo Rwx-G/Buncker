@@ -94,7 +94,10 @@ class Store:
                 os.chmod(tmp, 0o600)
                 os.rename(tmp, str(blob_path))
             except BaseException:
-                os.close(fd) if not os.get_inheritable(fd) else None
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
                 Path(tmp).unlink(missing_ok=True)
                 raise
 

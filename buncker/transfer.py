@@ -118,7 +118,12 @@ def import_response(
         )
 
     tar_bytes = decrypted[:last_newline]
-    sig = decrypted[last_newline + 1 :].decode()
+    try:
+        sig = decrypted[last_newline + 1 :].decode("ascii")
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise TransferError(
+            "Invalid HMAC signature encoding - transfer response is corrupted"
+        ) from exc
 
     # Verify HMAC
     if not verify(tar_bytes, hmac_key, sig):
@@ -139,7 +144,12 @@ def import_response(
                     tar.extractall(path=tmp_path, filter="data")
                 else:
                     for member in tar.getmembers():
-                        if os.path.isabs(member.name) or ".." in member.name:
+                        if (
+                            os.path.isabs(member.name)
+                            or ".." in member.name
+                            or member.issym()
+                            or member.islnk()
+                        ):
                             raise TransferError(
                                 f"Unsafe tar member rejected: {member.name}"
                             )

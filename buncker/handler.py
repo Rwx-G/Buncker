@@ -179,6 +179,33 @@ class BunckerHandler:
             self.wfile.write(body)
             return None
 
+    def _check_oci_rate_limit(self) -> bool:
+        """Check OCI per-IP rate limit. Returns True if allowed."""
+        limiter = getattr(self._server_ref, "oci_rate_limiter", None)
+        if limiter and not limiter.is_allowed(self.client_address[0]):
+            _log.warning(
+                "oci_rate_limited",
+                extra=self._request_meta("local"),
+            )
+            body = json.dumps(
+                {
+                    "errors": [
+                        {
+                            "code": "TOOMANYREQUESTS",
+                            "message": "rate limit exceeded",
+                        }
+                    ]
+                }
+            ).encode()
+            self.send_response(429)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Retry-After", "30")
+            self.end_headers()
+            self.wfile.write(body)
+            return False
+        return True
+
     # ------------------------------------------------------------------
     # GET
     # ------------------------------------------------------------------
@@ -214,6 +241,10 @@ class BunckerHandler:
             self._handle_admin_logs()
             return
 
+        # OCI rate limit on manifest/blob endpoints
+        if path.startswith("/v2/") and not self._check_oci_rate_limit():
+            return
+
         m = _MANIFEST_ROUTE.match(path)
         if m:
             self._handle_manifest_get(m.group(1), m.group(2))
@@ -241,6 +272,10 @@ class BunckerHandler:
 
         if _V2_ROOT.match(path):
             self._handle_v2_root()
+            return
+
+        # OCI rate limit on manifest/blob endpoints
+        if path.startswith("/v2/") and not self._check_oci_rate_limit():
             return
 
         m = _MANIFEST_ROUTE.match(path)
@@ -376,27 +411,13 @@ class BunckerHandler:
         blob_path = store.get_blob(digest)
         size = blob_path.stat().st_size
 
-        self.send_response(200)
-        self.send_header("Docker-Content-Digest", digest)
-        self.send_header("Content-Type", "application/octet-stream")
-        self.send_header("Content-Length", str(size))
-        self.end_headers()
-
-        # Stream blob via WSGI iterator (no full buffering in memory).
-        # SHA256 is verified inline; integrity errors are logged after
-        # the response has already started (cannot change status code).
-        self._stream_iter = self._blob_stream(
-            blob_path, digest, store
-        )
-
-    def _blob_stream(self, blob_path: Path, digest: str, store: Store):
-        """Yield blob chunks while verifying SHA256 integrity."""
+        # Verify SHA256 before streaming to detect disk corruption
+        # before sending headers.  The file stays in OS page cache for
+        # the subsequent streaming read.
         h = hashlib.sha256()
         with open(blob_path, "rb") as f:
             while chunk := f.read(_CHUNK_SIZE):
                 h.update(chunk)
-                yield chunk
-
         actual_digest = f"sha256:{h.hexdigest()}"
         if actual_digest != digest:
             _log.error(
@@ -407,6 +428,25 @@ class BunckerHandler:
                     "actual": actual_digest,
                 },
             )
+            self._send_oci_error(
+                500, "BLOB_CORRUPT", "blob failed integrity check"
+            )
+            return
+
+        self.send_response(200)
+        self.send_header("Docker-Content-Digest", digest)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(size))
+        self.end_headers()
+
+        # Stream from page cache (file was just fully read for SHA256)
+        self._stream_iter = self._blob_stream(blob_path, store, digest)
+
+    def _blob_stream(self, blob_path: Path, store: Store, digest: str):
+        """Yield blob chunks for WSGI streaming."""
+        with open(blob_path, "rb") as f:
+            while chunk := f.read(_CHUNK_SIZE):
+                yield chunk
 
         try:
             store.update_metadata(digest, "pull")
@@ -637,19 +677,22 @@ class BunckerHandler:
 
         with self._server_ref._analysis_lock:
             analysis = self._server_ref._last_analysis
-        if analysis is None:
-            self._send_admin_error(
-                409, "NO_ANALYSIS", "no analysis pending - run /admin/analyze first"
-            )
-            return
+            if analysis is None:
+                self._send_admin_error(
+                    409,
+                    "NO_ANALYSIS",
+                    "no analysis pending - run /admin/analyze first",
+                )
+                return
 
-        if analysis.analysis_id != req_analysis_id:
-            self._send_admin_error(
-                409,
-                "ANALYSIS_REPLACED",
-                "analysis was replaced by another request - re-run /admin/analyze",
-            )
-            return
+            if analysis.analysis_id != req_analysis_id:
+                self._send_admin_error(
+                    409,
+                    "ANALYSIS_REPLACED",
+                    "analysis was replaced by another request"
+                    " - re-run /admin/analyze",
+                )
+                return
 
         # Collect unique external images for manifest fetching on online side
         images = []
@@ -756,8 +799,15 @@ class BunckerHandler:
             self._send_admin_error(500, "NO_CRYPTO_KEYS", "crypto keys not configured")
             return
 
-        content_length = int(self.headers.get("Content-Length", 0))
-        if content_length == 0:
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+        except (ValueError, TypeError):
+            self._send_admin_error(
+                400, "INVALID_HEADER", "Content-Length must be a valid integer"
+            )
+            return
+
+        if content_length <= 0:
             self._send_admin_error(400, "EMPTY_BODY", "request body required")
             return
 
@@ -843,8 +893,16 @@ class BunckerHandler:
             )
             return
 
-        content_length = int(self.headers.get("Content-Length", 0))
-        if content_length == 0:
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+        except (ValueError, TypeError):
+            self._drain_body()
+            self._send_admin_error(
+                400, "INVALID_HEADER", "Content-Length must be a valid integer"
+            )
+            return
+
+        if content_length <= 0:
             self._send_admin_error(400, "EMPTY_BODY", "request body required")
             return
 
@@ -1160,6 +1218,12 @@ class BunckerHandler:
             self._send_admin_error(400, "INVALID_PARAM", "limit must be an integer")
             return
 
+        if limit < 0 or limit > 10000:
+            self._send_admin_error(
+                400, "INVALID_PARAM", "limit must be between 0 and 10000"
+            )
+            return
+
         since = None
         if since_str:
             try:
@@ -1273,8 +1337,15 @@ class BunckerHandler:
 
     def _read_json_body(self) -> dict | None:
         """Read and parse a JSON request body. Returns None on error."""
-        content_length = int(self.headers.get("Content-Length", 0))
-        if content_length == 0:
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+        except (ValueError, TypeError):
+            self._send_admin_error(
+                400, "INVALID_HEADER", "Content-Length must be a valid integer"
+            )
+            return None
+
+        if content_length <= 0:
             self._send_admin_error(400, "EMPTY_BODY", "request body required")
             return None
 

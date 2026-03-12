@@ -146,6 +146,7 @@ class BunckerServer:
         self._last_analysis = None
         self._analysis_lock = threading.Lock()
         self.rate_limiter = RateLimiter()
+        self.oci_rate_limiter = RateLimiter(max_requests=200)
 
     def start(self) -> None:
         """Start the server in a background thread."""

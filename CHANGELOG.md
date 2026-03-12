@@ -17,6 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TCP_NODELAY enabled on accepted connections to reduce latency on small responses (manifests, HEAD)
 - Server TCP backlog set to 32 for predictable connection queuing under load
 
+### Security
+
+- File descriptor leak in `Store.import_blob` error path now properly closed before cleanup
+- Content-Length header validated as integer before use, preventing type-confusion attacks
+- Log limit parameter bounds-checked (0-10000) to prevent abuse via excessively large values
+- Tar extraction in transfer import now rejects symlinks and hardlinks (Python < 3.12 path)
+- HMAC signature decode errors now raise `TransferError` instead of unhandled `UnicodeDecodeError`
+- SHA256 pre-verification on blob GET: file integrity checked before HTTP headers are sent, returning 500 BLOB_CORRUPT on mismatch
+- TOCTOU fix on analysis cache: `analysis_id` validation now runs inside the same lock scope as the cache read
+- Per-IP rate limiting (200 req/min sliding window) on OCI manifest and blob endpoints
+
 ### Fixed
 
 - GC report/execute race condition: `_last_gc_report` in Store now protected by a threading lock
