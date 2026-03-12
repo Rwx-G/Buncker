@@ -91,7 +91,7 @@ class _BoundedWSGIServer(ThreadingMixIn, WSGIServer):
     def server_close(self) -> None:
         """Shut down the thread pool when closing the server."""
         super().server_close()
-        self._pool.shutdown(wait=False)
+        self._pool.shutdown(wait=True, cancel_futures=True)
 
 
 class BunckerServer:
@@ -184,12 +184,17 @@ class BunckerServer:
         )
 
     def stop(self) -> None:
-        """Shut down the server gracefully."""
+        """Shut down the server gracefully.
+
+        Calls ``shutdown()`` to stop accepting new requests, then
+        ``server_close()`` to drain in-flight requests via the thread
+        pool.  The server thread is joined with a 5-second timeout.
+        """
         if self._server is not None:
             self._server.shutdown()
             self._server.server_close()
             if self._thread is not None:
-                self._thread.join(timeout=2)
+                self._thread.join(timeout=5)
             _log.info("server_stopped")
 
     @property

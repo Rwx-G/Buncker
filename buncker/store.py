@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -94,10 +95,8 @@ class Store:
                 os.chmod(tmp, 0o600)
                 os.rename(tmp, str(blob_path))
             except BaseException:
-                try:
+                with contextlib.suppress(OSError):
                     os.close(fd)
-                except OSError:
-                    pass
                 Path(tmp).unlink(missing_ok=True)
                 raise
 
@@ -323,6 +322,15 @@ class Store:
             raise StoreError(
                 "No GC report available - run gc_report() first",
             )
+
+        _log.info(
+            "gc_pre_delete",
+            extra={
+                "operator": operator,
+                "digest_count": len(digests),
+                "digests": digests,
+            },
+        )
 
         count = 0
         bytes_freed = 0
