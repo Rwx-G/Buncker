@@ -80,10 +80,10 @@ Download the latest `.deb` files from [GitHub Releases](https://github.com/Rwx-G
 
 ```bash
 # Offline machine
-sudo dpkg -i buncker_1.0.1_all.deb
+sudo dpkg -i buncker_1.0.3_all.deb
 
 # Online machine
-sudo dpkg -i buncker-fetch_1.0.1_all.deb
+sudo dpkg -i buncker-fetch_1.0.3_all.deb
 ```
 
 If dependencies are missing, fix them with:
@@ -98,10 +98,10 @@ Download the latest `.rpm` files from [GitHub Releases](https://github.com/Rwx-G
 
 ```bash
 # Offline machine
-sudo dnf install buncker-1.0.1-1.noarch.rpm
+sudo dnf install buncker-1.0.3-1.noarch.rpm
 
 # Online machine
-sudo dnf install buncker-fetch-1.0.1-1.noarch.rpm
+sudo dnf install buncker-fetch-1.0.3-1.noarch.rpm
 ```
 
 ### From source (development)
@@ -548,6 +548,8 @@ When API auth is enabled (`buncker api-setup`):
   `user_agent` for forensic review
 - Per-IP rate limiting on admin endpoints: 60 requests/minute sliding window
   (returns 429 with `Retry-After` header when exceeded)
+- Per-IP rate limiting on OCI endpoints (`/v2/*/manifests/`, `/v2/*/blobs/`):
+  200 requests/minute sliding window
 
 ## Troubleshooting
 

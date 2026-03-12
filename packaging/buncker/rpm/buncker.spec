@@ -1,5 +1,5 @@
 Name:           buncker
-Version:        1.0.1
+Version:        1.0.3
 Release:        1%{?dist}
 Summary:        Offline Docker registry for air-gapped environments
 License:        Apache-2.0
