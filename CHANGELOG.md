@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GC report/execute race condition: `_last_gc_report` in Store now protected by a threading lock
 - Multi-arch platform resolution in buncker-fetch now supports os/arch/variant format (e.g. `linux/arm/v7`)
 - Reserved `filename` key in log record extra dict renamed to avoid conflict with Python 3.14 stricter logging
+- `UnboundLocalError` on `shutil` in `api-setup` when using auto-signed certificates (import was inside wrong branch)
+- Deduplicated blob resolution logic in resolver (60 lines removed, `resolve_dockerfile` now delegates to `_resolve_image_blobs`)
 
 ## [1.0.2] - 2026-03-12
 
