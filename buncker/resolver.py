@@ -274,64 +274,15 @@ def resolve_dockerfile(
     seen_digests: set[str] = set()
 
     for image in images:
-        if image.is_internal:
-            continue
-
-        if image.is_private:
-            msg = f"Private registry {image.registry} skipped"
-            result.warnings.append(msg)
-            _log.warning(msg)
-            continue
-
-        if image.tag == "latest":
-            msg = f"Image {image.resolved} uses tag 'latest' - consider pinning"
-            result.warnings.append(msg)
-            _log.warning(msg)
-
-        platform = image.platform or default_platform
-        reference = image.digest if image.digest else image.tag
-
-        manifest = registry_client.get_manifest(
-            image.registry,
-            image.repository,
-            reference,
-            platform,
+        _resolve_image_blobs(
+            image,
+            result,
+            seen_digests,
+            store=store,
+            registry_client=registry_client,
+            default_platform=default_platform,
+            manifest_ttl=manifest_ttl,
         )
-
-        if manifest is None:
-            msg = f"Manifest not cached for {image.resolved} - run fetch first"
-            result.warnings.append(msg)
-            _log.warning(msg)
-            continue
-
-        # Check staleness
-        if manifest_ttl > 0 and image.tag:
-            _check_staleness(registry_client, image, platform, manifest_ttl, result)
-
-        layer_digests = _extract_layer_digests(manifest)
-
-        new_digests = [d for d in layer_digests if d not in seen_digests]
-        seen_digests.update(new_digests)
-
-        if not new_digests:
-            continue
-
-        missing = store.list_missing(new_digests)
-        present = set(new_digests) - set(missing)
-        result.present_blobs.update(present)
-
-        for digest in missing:
-            layer_info = _find_layer_info(manifest, digest)
-            result.missing_blobs.append(
-                {
-                    "registry": image.registry,
-                    "repository": image.repository,
-                    "digest": digest,
-                    "size": layer_info.get("size", 0),
-                    "media_type": layer_info.get("mediaType", ""),
-                }
-            )
-            result.total_missing_size += layer_info.get("size", 0)
 
     return result
 

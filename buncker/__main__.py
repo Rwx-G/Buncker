@@ -316,9 +316,9 @@ def _cmd_setup(args: argparse.Namespace) -> None:
     km_path = config_path.parent / "key-material"
     try:
         km_path.write_bytes(generate_key_material())
-        import contextlib as _ctxlib
+        import contextlib
 
-        with _ctxlib.suppress(OSError):
+        with contextlib.suppress(OSError):
             km_path.chmod(0o600)
     except OSError:
         pass  # Non-fatal: encryption falls back to machine-id only
@@ -334,7 +334,6 @@ def _cmd_setup(args: argparse.Namespace) -> None:
     except Exception:
         # Fallback to cleartext if machine-id unavailable (dev/test)
         env_path.write_text(f"BUNCKER_MNEMONIC={mnemonic}\n", encoding="utf-8")
-    import contextlib
 
     with contextlib.suppress(OSError):
         env_path.chmod(0o600)
@@ -453,6 +452,8 @@ def _cmd_api_setup(args: argparse.Namespace) -> None:
         end="",
         flush=True,
     )
+    import shutil
+
     store_path = Path(config["store_path"])
     tls_dir = store_path / "tls"
 
@@ -467,8 +468,6 @@ def _cmd_api_setup(args: argparse.Namespace) -> None:
             print(f"  {_c('Error:', _RED)} Key not found: {args.key}")
             sys.exit(1)
         tls_dir.mkdir(parents=True, exist_ok=True)
-        import shutil
-
         shutil.copy2(args.cert, tls_dir / "server.pem")
         shutil.copy2(args.key, tls_dir / "server-key.pem")
         print(_c("done", _GREEN))
@@ -496,8 +495,6 @@ def _cmd_api_setup(args: argparse.Namespace) -> None:
     ca_src = tls_dir / "ca.pem"
     ca_dest = config_path.parent / "ca.pem"
     if ca_src.exists():
-        import shutil
-
         shutil.copy2(ca_src, ca_dest)
 
     # Compute cert fingerprint

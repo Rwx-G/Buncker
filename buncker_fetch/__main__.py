@@ -22,6 +22,7 @@ from buncker_fetch.registry_client import RegistryClient, load_credentials
 from buncker_fetch.transfer import build_response, process_request
 from shared.crypto import decrypt, derive_keys, encrypt
 from shared.exceptions import BunckerError, CryptoError
+from shared.oci import OCIPlatform
 from shared.wordlist import WORDLIST
 
 _DEFAULT_CACHE_PATH = Path.home() / ".buncker" / "cache"
@@ -433,21 +434,34 @@ def _fetch_manifests(
             platform_manifest = None
 
             if is_index:
-                platform_parts = platform_str.split("/")
-                target_os = platform_parts[0] if platform_parts else "linux"
-                target_arch = platform_parts[1] if len(platform_parts) > 1 else "amd64"
+                parts = platform_str.split("/")
+                target = OCIPlatform(
+                    os=parts[0] if parts else "linux",
+                    architecture=parts[1] if len(parts) > 1 else "amd64",
+                    variant=parts[2] if len(parts) > 2 else None,
+                )
 
                 for entry in raw_manifest.get("manifests", []):
                     p = entry.get("platform", {})
                     annotations = entry.get("annotations", {})
-                    ref_type = annotations.get("vnd.docker.reference.type", "")
+                    ref_type = annotations.get(
+                        "vnd.docker.reference.type",
+                    )
                     if ref_type == "attestation-manifest":
                         continue
-                    os_match = p.get("os") == target_os
-                    if os_match and p.get("architecture") == target_arch:
-                        digest = entry["digest"]
-                        platform_manifest = client.fetch_manifest(repository, digest)
-                        break
+                    os_match = p.get("os") == target.os
+                    arch_match = p.get("architecture") == target.architecture
+                    if not (os_match and arch_match):
+                        continue
+                    variant_mismatch = (
+                        target.variant is not None
+                        and p.get("variant") != target.variant
+                    )
+                    if variant_mismatch:
+                        continue
+                    digest = entry["digest"]
+                    platform_manifest = client.fetch_manifest(repository, digest)
+                    break
             else:
                 platform_manifest = raw_manifest
 

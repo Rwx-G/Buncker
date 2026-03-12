@@ -1,5 +1,5 @@
 Name:           buncker-fetch
-Version:        1.0.1
+Version:        1.0.3
 Release:        1%{?dist}
 Summary:        Online fetch tool for Buncker air-gapped Docker sync
 License:        Apache-2.0

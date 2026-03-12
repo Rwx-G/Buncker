@@ -5,6 +5,7 @@ import hmac as _hmac
 import os
 import secrets
 
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -174,7 +175,7 @@ def decrypt(data: bytes, aes_key: bytes) -> bytes:
     aesgcm = AESGCM(aes_key)
     try:
         return aesgcm.decrypt(nonce, ciphertext, None)
-    except Exception as exc:
+    except (ValueError, InvalidTag) as exc:
         raise CryptoError("Decryption failed", {"reason": str(exc)}) from exc
 
 
@@ -323,9 +324,9 @@ def decrypt_env_value(
     ct = base64.b64decode(encrypted_b64)
     try:
         return decrypt(ct, key).decode()
-    except CryptoError as err:
+    except CryptoError:
         raise CryptoError(
             "Failed to decrypt mnemonic from env file. "
             "This may happen after migrating to a different machine. "
             "Set BUNCKER_MNEMONIC environment variable directly."
-        ) from err
+        ) from None

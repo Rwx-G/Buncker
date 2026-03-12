@@ -829,23 +829,21 @@ class TestBodyValidation:
         return srv
 
     def test_oversized_json_body(self, tmp_path):
-        """Content-Length > 10 MiB returns 400."""
+        """Content-Length > limit returns 400."""
         srv = self._make_server(tmp_path)
         try:
             url = f"http://127.0.0.1:{srv.port}/admin/analyze"
-            # Send a request claiming to be > 10MiB
-            data = b'{"big": true}'
-            req = urllib.request.Request(
-                url,
-                data=data,
-                headers={
-                    "Content-Type": "application/json",
-                    "Content-Length": str(11 * 1024 * 1024),
-                },
-            )
-            with pytest.raises(HTTPError) as exc_info:
-                urllib.request.urlopen(req)
-            assert exc_info.value.code == 400
+            # Patch limit to 100 bytes and send more than that
+            data = b"x" * 200
+            with mock.patch("buncker.handler._MAX_JSON_BODY_SIZE", 100):
+                req = urllib.request.Request(
+                    url,
+                    data=data,
+                    headers={"Content-Type": "application/json"},
+                )
+                with pytest.raises(HTTPError) as exc_info:
+                    urllib.request.urlopen(req)
+                assert exc_info.value.code == 400
         finally:
             srv.stop()
 
@@ -1518,5 +1516,55 @@ class TestManifestRoute:
             with pytest.raises(HTTPError) as exc_info:
                 urllib.request.urlopen(req)
             assert exc_info.value.code == 404
+        finally:
+            srv.stop()
+
+
+class TestLogLimitBounds:
+    """Tests for log limit bounds checking."""
+
+    def _make_server(self, tmp_path):
+        from buncker.server import BunckerServer
+        from buncker.store import Store
+
+        store = Store(tmp_path / "store")
+        log_path = tmp_path / "buncker.log"
+        log_path.write_text("")
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            source_id="test",
+            log_path=log_path,
+        )
+        srv.start()
+        return srv
+
+    def test_negative_limit_returns_400(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/logs?limit=-1"
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(url)
+            assert exc_info.value.code == 400
+        finally:
+            srv.stop()
+
+    def test_excessive_limit_returns_400(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/logs?limit=99999"
+            with pytest.raises(HTTPError) as exc_info:
+                urllib.request.urlopen(url)
+            assert exc_info.value.code == 400
+        finally:
+            srv.stop()
+
+    def test_valid_limit_accepted(self, tmp_path):
+        srv = self._make_server(tmp_path)
+        try:
+            url = f"http://127.0.0.1:{srv.port}/admin/logs?limit=100"
+            resp = urllib.request.urlopen(url)
+            assert resp.status == 200
         finally:
             srv.stop()

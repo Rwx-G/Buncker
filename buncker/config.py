@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from shared.exceptions import ConfigError
+
+_log = logging.getLogger("buncker.config")
 
 _DEFAULT_CONFIG_PATH = Path("/etc/buncker/config.json")
 
@@ -50,6 +53,15 @@ def load_config(path: Path | None = None) -> dict:
                 f"Invalid JSON in config file: {config_path}",
                 {"path": str(config_path), "error": str(exc)},
             ) from exc
+
+        # Warn about unknown keys (typo detection)
+        known_keys = set(_DEFAULTS.keys()) | {"oci"}
+        for key in file_config:
+            if key not in known_keys:
+                _log.warning(
+                    "config_unknown_key",
+                    extra={"key": key, "path": str(config_path)},
+                )
 
         config.update(file_config)
 
@@ -97,6 +109,22 @@ def validate_config(config: dict) -> None:
         raise ConfigError(
             f"Invalid log_level: {log_level}",
             {"log_level": log_level, "valid": list(valid_levels)},
+        )
+
+    gc = config.get("gc", {})
+    if isinstance(gc, dict):
+        threshold = gc.get("inactive_days_threshold", 90)
+        if not isinstance(threshold, int) or threshold < 1:
+            raise ConfigError(
+                f"Invalid gc.inactive_days_threshold: {threshold} (must be >= 1)",
+                {"inactive_days_threshold": threshold},
+            )
+
+    transfer_path = config.get("transfer_path", "")
+    if transfer_path and not isinstance(transfer_path, str):
+        raise ConfigError(
+            "transfer_path must be a string",
+            {"transfer_path": transfer_path},
         )
 
 

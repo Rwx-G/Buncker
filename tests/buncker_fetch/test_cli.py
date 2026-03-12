@@ -538,6 +538,65 @@ class TestFetchManifests:
 
         assert result == []
 
+    def test_fetch_manifests_index_platform_with_variant(self):
+        """Index manifest resolves with os/arch/variant (e.g. arm/v7)."""
+        from buncker_fetch.__main__ import _fetch_manifests
+
+        index_manifest = {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": [
+                {
+                    "digest": "sha256:armv7",
+                    "platform": {
+                        "os": "linux",
+                        "architecture": "arm",
+                        "variant": "v7",
+                    },
+                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                },
+                {
+                    "digest": "sha256:arm64",
+                    "platform": {
+                        "os": "linux",
+                        "architecture": "arm64",
+                    },
+                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                },
+            ],
+        }
+
+        platform_manifest = {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {"digest": "sha256:cfg", "size": 100, "mediaType": "config"},
+            "layers": [],
+        }
+
+        mock_client = MagicMock()
+        mock_client.fetch_manifest.side_effect = [index_manifest, platform_manifest]
+
+        request_data = {
+            "images": [
+                {
+                    "registry": "docker.io",
+                    "repository": "library/nginx",
+                    "tag": "1.25",
+                    "platform": "linux/arm/v7",
+                }
+            ]
+        }
+
+        with (
+            patch("buncker_fetch.__main__.RegistryClient", return_value=mock_client),
+            patch("buncker_fetch.__main__.load_credentials", return_value=None),
+        ):
+            result = _fetch_manifests(request_data, {})
+
+        assert len(result) == 1
+        # Verify the correct platform digest was fetched
+        mock_client.fetch_manifest.assert_called_with("library/nginx", "sha256:armv7")
+
     def test_fetch_manifests_exception_logged(self):
         """Exception during fetch is caught and logged."""
         from buncker_fetch.__main__ import _fetch_manifests

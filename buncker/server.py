@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import collections
 import logging
+import socket
 import ssl
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from http.server import ThreadingHTTPServer
 from pathlib import Path
+from socketserver import ThreadingMixIn
+from wsgiref.simple_server import WSGIRequestHandler, WSGIServer
 
-from buncker.handler import BunckerHandler
+from buncker.handler import create_wsgi_app
 from buncker.store import Store
 
 _log = logging.getLogger("buncker.server")
@@ -47,35 +49,62 @@ class RateLimiter:
             return True
 
 
-class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
-    """ThreadingHTTPServer with a bounded thread pool.
+class _QuietWSGIHandler(WSGIRequestHandler):
+    """WSGIRequestHandler that suppresses default stderr logging.
 
-    Limits concurrent request handling to ``max_workers`` threads
-    to prevent resource exhaustion under high load.
+    Sets a 60-second socket timeout to mitigate slowloris-style
+    thread exhaustion on the bounded worker pool.
     """
+
+    timeout = 60
+
+    def log_request(self, *args, **kwargs):
+        pass
+
+
+class _BoundedWSGIServer(ThreadingMixIn, WSGIServer):
+    """Threaded WSGI server with bounded thread pool and TCP_NODELAY.
+
+    Uses a ThreadPoolExecutor to limit concurrent request handling,
+    and enables TCP_NODELAY on accepted connections to reduce latency
+    on small responses (manifests, HEAD requests).
+    """
+
+    daemon_threads = True
+    request_queue_size = 32
 
     def __init__(
         self,
         server_address: tuple[str, int],
-        handler_class,
+        app,
         *,
         max_workers: int = 16,
     ) -> None:
         self._pool = ThreadPoolExecutor(max_workers=max_workers)
-        super().__init__(server_address, handler_class)
+        super().__init__(server_address, _QuietWSGIHandler)
+        self.set_app(app)
 
     def process_request(self, request, client_address) -> None:
         """Submit request processing to the bounded thread pool."""
         self._pool.submit(self.process_request_thread, request, client_address)
 
+    def get_request(self):
+        """Accept a connection and enable TCP_NODELAY."""
+        conn, addr = super().get_request()
+        conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        return conn, addr
+
     def server_close(self) -> None:
         """Shut down the thread pool when closing the server."""
         super().server_close()
-        self._pool.shutdown(wait=False)
+        self._pool.shutdown(wait=True, cancel_futures=True)
 
 
 class BunckerServer:
-    """Threaded HTTP server with bounded thread pool for OCI registry.
+    """Threaded WSGI HTTP server for OCI registry.
+
+    Uses stdlib WSGIServer with a bounded thread pool.  TLS is enabled
+    when both tls_cert and tls_key are provided.
 
     Args:
         bind: Address to bind to.
@@ -106,8 +135,9 @@ class BunckerServer:
         self._port = port
         self._store = store
         self._max_workers = max_workers
-        self._server: _BoundedThreadingHTTPServer | None = None
+        self._server: _BoundedWSGIServer | None = None
         self._thread: threading.Thread | None = None
+        self._use_tls = bool(tls_cert and tls_key)
         self.crypto_keys = crypto_keys
         self.source_id = source_id
         self.log_path = log_path
@@ -118,24 +148,23 @@ class BunckerServer:
         self.oci_restrict = oci_restrict
         self.manifest_ttl = manifest_ttl
         self._start_time: float | None = None
+        self._actual_port: int = port
         self._last_analysis = None
         self._analysis_lock = threading.Lock()
         self.rate_limiter = RateLimiter()
+        self.oci_rate_limiter = RateLimiter(max_requests=200)
 
     def start(self) -> None:
         """Start the server in a background thread."""
+        app = create_wsgi_app(self)
 
-        def handler_factory(*args, **kwargs):
-            return BunckerHandler(*args, server_ref=self, **kwargs)
-
-        self._server = _BoundedThreadingHTTPServer(
+        self._server = _BoundedWSGIServer(
             (self._bind, self._port),
-            handler_factory,
+            app,
             max_workers=self._max_workers,
         )
 
-        # Wrap socket with TLS if cert/key provided
-        if self._tls_cert and self._tls_key:
+        if self._use_tls:
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             ctx.minimum_version = ssl.TLSVersion.TLSv1_2
             ctx.set_ciphers("ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20")
@@ -143,28 +172,39 @@ class BunckerServer:
             ctx.load_cert_chain(self._tls_cert, self._tls_key)
             self._server.socket = ctx.wrap_socket(self._server.socket, server_side=True)
 
+        self._actual_port = self._server.server_address[1]
         self._start_time = time.time()
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
-        scheme = "https" if self._tls_cert else "http"
+
+        scheme = "https" if self._use_tls else "http"
         _log.info(
             "server_started",
             extra={"bind": self._bind, "port": self.port, "scheme": scheme},
         )
 
     def stop(self) -> None:
-        """Shut down the server gracefully."""
+        """Shut down the server gracefully.
+
+        Calls ``shutdown()`` to stop accepting new requests, then
+        ``server_close()`` to drain in-flight requests via the thread
+        pool.  The server thread is joined with a 5-second timeout.
+        """
         if self._server is not None:
+            _log.info(
+                "server_stopping",
+                extra={"pending_workers": self._server._pool._work_queue.qsize()},
+            )
             self._server.shutdown()
             self._server.server_close()
+            if self._thread is not None:
+                self._thread.join(timeout=5)
             _log.info("server_stopped")
 
     @property
     def port(self) -> int:
         """Return the actual port (useful when binding to port 0)."""
-        if self._server is not None:
-            return self._server.server_address[1]
-        return self._port
+        return self._actual_port
 
     @property
     def store(self) -> Store:

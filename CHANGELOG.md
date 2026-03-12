@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-03-12
+
+### Changed
+
+- Handler converted from `BaseHTTPRequestHandler` to standalone WSGI-compatible class with streaming support
+- Blob responses now use WSGI streaming iterator instead of full memory buffering, eliminating RAM overhead for large blobs
+- Chunk size increased from 64 KiB to 1 MiB for reduced Python loop overhead on large blob transfers
+- TCP_NODELAY enabled on accepted connections to reduce latency on small responses (manifests, HEAD)
+- Server TCP backlog set to 32 for predictable connection queuing under load
+- Graceful shutdown: thread pool drains in-flight requests before closing (5s join timeout), `server_stopping` log with pending worker count
+- GC `gc_execute` now logs a `gc_pre_delete` audit entry with the full digest list before deleting any blob
+- Socket timeout (60s) moved to WSGI handler class (was dead code on standalone handler after WSGI refactor)
+
+### Security
+
+- File descriptor leak in `Store.import_blob` error path now properly closed before cleanup
+- Content-Length header validated as integer before use, preventing type-confusion attacks
+- Log limit parameter bounds-checked (0-10000) to prevent abuse via excessively large values
+- Tar extraction in transfer import now rejects symlinks and hardlinks (Python < 3.12 path)
+- HMAC signature decode errors now raise `TransferError` instead of unhandled `UnicodeDecodeError`
+- SHA256 pre-verification on blob GET: file integrity checked before HTTP headers are sent, returning 500 BLOB_CORRUPT on mismatch
+- TOCTOU fix on analysis cache: `analysis_id` validation now runs inside the same lock scope as the cache read
+- Per-IP rate limiting (200 req/min sliding window) on OCI manifest and blob endpoints
+- Narrowed exception types: AES-GCM decryption catches `(ValueError, InvalidTag)` instead of bare `Exception`; transfer decrypt catches `CryptoError`; tar extraction matches specific error class names
+- Config validation: `gc.inactive_days_threshold` must be >= 1, `transfer_path` type-checked, unknown config keys emit a warning
+- Fix `CryptoError` double-wrap in `decrypt_env_value` (use `from None` instead of chaining same exception type)
+
+### Fixed
+
+- GC report/execute race condition: `_last_gc_report` in Store now protected by a threading lock
+- Multi-arch platform resolution in buncker-fetch now supports os/arch/variant format (e.g. `linux/arm/v7`)
+- Reserved `filename` key in log record extra dict renamed to avoid conflict with Python 3.14 stricter logging
+- `UnboundLocalError` on `shutil` in `api-setup` when using auto-signed certificates (import was inside wrong branch)
+- Deduplicated blob resolution logic in resolver (60 lines removed, `resolve_dockerfile` now delegates to `_resolve_image_blobs`)
+
 ## [1.0.2] - 2026-03-12
 
 ### Security
@@ -320,7 +355,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/Rwx-G/Buncker/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/Rwx-G/Buncker/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/Rwx-G/Buncker/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Rwx-G/Buncker/compare/v0.9.0...v1.0.0

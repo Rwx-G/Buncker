@@ -17,7 +17,7 @@ from buncker import __version__
 from buncker.registry_client import ManifestCache
 from buncker.store import Store
 from shared.crypto import decrypt, encrypt, sign, verify
-from shared.exceptions import TransferError
+from shared.exceptions import CryptoError, TransferError
 
 _log = logging.getLogger("buncker.transfer")
 
@@ -103,7 +103,7 @@ def import_response(
     # Decrypt
     try:
         decrypted = decrypt(encrypted_data, aes_key)
-    except Exception as exc:
+    except CryptoError as exc:
         raise TransferError(
             "Failed to decrypt transfer response",
             {"path": str(response_path)},
@@ -118,7 +118,12 @@ def import_response(
         )
 
     tar_bytes = decrypted[:last_newline]
-    sig = decrypted[last_newline + 1 :].decode()
+    try:
+        sig = decrypted[last_newline + 1 :].decode("ascii")
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise TransferError(
+            "Invalid HMAC signature encoding - transfer response is corrupted"
+        ) from exc
 
     # Verify HMAC
     if not verify(tar_bytes, hmac_key, sig):
@@ -139,7 +144,12 @@ def import_response(
                     tar.extractall(path=tmp_path, filter="data")
                 else:
                     for member in tar.getmembers():
-                        if os.path.isabs(member.name) or ".." in member.name:
+                        if (
+                            os.path.isabs(member.name)
+                            or ".." in member.name
+                            or member.issym()
+                            or member.islnk()
+                        ):
                             raise TransferError(
                                 f"Unsafe tar member rejected: {member.name}"
                             )
@@ -147,7 +157,15 @@ def import_response(
             except TransferError:
                 raise
             except Exception as exc:
-                if "outside" in str(exc).lower() or "absolute" in str(exc).lower():
+                # Python 3.12+ raises tarfile.FilterError /
+                # OutsideDestinationError for unsafe members.
+                exc_name = type(exc).__name__
+                if exc_name in (
+                    "FilterError",
+                    "OutsideDestinationError",
+                    "AbsolutePathError",
+                    "LinkOutsideDestinationError",
+                ):
                     raise TransferError(f"Unsafe tar member rejected: {exc}") from exc
                 raise
 
