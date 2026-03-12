@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.2]
+## [1.0.2] - 2026-03-12
 
 ### Security
 
@@ -320,7 +320,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/Rwx-G/Buncker/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/Rwx-G/Buncker/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Rwx-G/Buncker/compare/v0.9.0...v1.0.0
 [0.9.0]: https://github.com/Rwx-G/Buncker/compare/v0.8.1...v0.9.0
