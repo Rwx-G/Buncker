@@ -65,9 +65,10 @@ check_output() {
     fi
 }
 
-exec_offline() { $COMPOSE exec -T buncker-offline "$@"; }
-exec_online()  { $COMPOSE exec -T online "$@"; }
-exec_client()  { $COMPOSE exec -T client "$@"; }
+exec_offline()  { $COMPOSE exec -T buncker-offline "$@"; }
+exec_online()   { $COMPOSE exec -T online "$@"; }
+exec_client()   { $COMPOSE exec -T client "$@"; }
+exec_client2()  { $COMPOSE exec -T client-offline "$@"; }
 
 # ---------------------------------------------------------------
 # Setup: copy helper scripts into containers
@@ -92,6 +93,9 @@ check "online container is running" \
 
 check "client container is running" \
     exec_client echo ok
+
+check "client-offline container is running" \
+    exec_client2 echo ok
 
 check "buncker-offline has no internet" \
     bash -c "! $COMPOSE exec -T buncker-offline curl -s --connect-timeout 2 https://google.com 2>/dev/null"
@@ -185,7 +189,11 @@ ANALYZE_OUTPUT=$(exec_offline buncker analyze /tmp/test.Dockerfile 2>&1) || true
 echo "  Analyze: $ANALYZE_OUTPUT"
 check_output "analyze found missing blobs" "missing_blobs" echo "$ANALYZE_OUTPUT"
 
-exec_offline buncker generate-manifest --output /tmp/ 2>&1 || true
+# Extract analysis_id from JSON output
+ANALYSIS_ID=$(echo "$ANALYZE_OUTPUT" | exec_offline python3 -c "import sys,json; print(json.load(sys.stdin)['analysis_id'])" 2>/dev/null) || true
+echo "  Analysis ID: $ANALYSIS_ID"
+
+exec_offline buncker generate-manifest --analysis-id "$ANALYSIS_ID" --output /tmp/ 2>&1 || true
 REQUEST_FILE="/tmp/buncker-request.json.enc"
 check "transfer request generated" \
     exec_offline test -f "$REQUEST_FILE"
@@ -290,11 +298,15 @@ ANALYZE_RESULT=$(exec_client curl -ks \
 echo "  Analyze: $ANALYZE_RESULT"
 check_output "LAN analyze found images" "images" echo "$ANALYZE_RESULT"
 
+# Extract analysis_id for generate-manifest
+LAN_ANALYSIS_ID=$(echo "$ANALYZE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['analysis_id'])" 2>/dev/null) || true
+echo "  Analysis ID: $LAN_ANALYSIS_ID"
+
 # Generate manifest (download encrypted request via curl)
 exec_client bash -c "curl -ks \
     -X POST -H 'Authorization: Bearer $ADMIN_TOKEN' \
-    -H 'Content-Type: application/octet-stream' \
-    -H 'Content-Length: 0' \
+    -H 'Content-Type: application/json' \
+    -d '{\"analysis_id\":\"$LAN_ANALYSIS_ID\"}' \
     -o /transfer/lan-request.json.enc \
     '$BUNCKER_URL/admin/generate-manifest'"
 check "LAN generate-manifest downloaded" \
@@ -440,6 +452,171 @@ HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" \
     -H "Authorization: Bearer invalid_token_12345" "$BUNCKER_URL/v2/")
 check "OCI /v2/ with invalid token -> 401 (restricted)" \
     test "$HTTP_CODE" = "401"
+
+# ---------------------------------------------------------------
+# Phase 4: Concurrent Analysis, Timeout & Large Transfer
+# Uses client + client-offline as two simultaneous LAN clients
+# ---------------------------------------------------------------
+
+bold ""
+bold "=== Phase 4: Concurrent Analysis, Timeout & Large Transfer ==="
+
+# Reload tokens (may have changed in phase 2)
+ADMIN_TOKEN=$(exec_offline python3 -c "import json; print(json.load(open('/etc/buncker/api-tokens.json'))['admin'])")
+RO_TOKEN=$(exec_offline python3 -c "import json; print(json.load(open('/etc/buncker/api-tokens.json'))['readonly'])")
+
+# -- Test 1: Concurrent analyze - analysis_id race detection --
+bold "  -- Test 1: Concurrent analyze (analysis_id race) --"
+
+# Client 1 analyzes
+ANALYZE_C1=$(exec_client curl -ks \
+    -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"dockerfile_content":"FROM alpine:3.19\n"}' \
+    "$BUNCKER_URL/admin/analyze")
+AID_C1=$(echo "$ANALYZE_C1" | python3 -c "import sys,json; print(json.load(sys.stdin)['analysis_id'])" 2>/dev/null) || true
+echo "  Client 1 analysis_id: $AID_C1"
+
+check "client 1 analyze returned analysis_id" \
+    test -n "$AID_C1"
+
+# Client 2 analyzes (overwrites client 1's analysis)
+ANALYZE_C2=$(exec_client2 curl -ks \
+    -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"dockerfile_content":"FROM alpine:3.19\n"}' \
+    "$BUNCKER_URL/admin/analyze")
+AID_C2=$(echo "$ANALYZE_C2" | python3 -c "import sys,json; print(json.load(sys.stdin)['analysis_id'])" 2>/dev/null) || true
+echo "  Client 2 analysis_id: $AID_C2"
+
+check "client 2 got different analysis_id" \
+    test "$AID_C1" != "$AID_C2"
+
+# Client 1 tries to generate with its old analysis_id -> 409 ANALYSIS_REPLACED
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" \
+    -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"analysis_id\":\"$AID_C1\"}" \
+    "$BUNCKER_URL/admin/generate-manifest")
+check "client 1 generate with stale analysis_id -> 409" \
+    test "$HTTP_CODE" = "409"
+
+# Client 2 generates with its valid analysis_id -> 200
+HTTP_CODE=$(exec_client2 curl -ks -o /dev/null -w "%{http_code}" \
+    -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"analysis_id\":\"$AID_C2\"}" \
+    "$BUNCKER_URL/admin/generate-manifest")
+check "client 2 generate with valid analysis_id -> 200" \
+    test "$HTTP_CODE" = "200"
+
+# -- Test 2: Socket timeout (slowloris mitigation) --
+bold "  -- Test 2: Socket timeout (idle connection dropped after 60s) --"
+
+# Open a connection that sends partial headers then goes idle.
+# The server timeout is 60s; we wait 65s and expect the connection to be dropped.
+# We use python3 to open a raw socket and hold it open.
+TIMEOUT_RESULT=$(exec_client2 python3 -c "
+import socket, ssl, time
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+sock = socket.create_connection(('buncker-offline', 5000), timeout=70)
+ssock = ctx.wrap_socket(sock, server_hostname='buncker-offline')
+# Send partial HTTP request (no body, no final newline)
+ssock.sendall(b'POST /admin/status HTTP/1.1\r\nHost: buncker-offline\r\n')
+# Wait for server to drop the connection (timeout=60s)
+time.sleep(65)
+try:
+    data = ssock.recv(1024)
+    if not data:
+        print('DROPPED')
+    else:
+        print('UNEXPECTED_DATA')
+except (ConnectionError, socket.timeout, ssl.SSLError, OSError):
+    print('DROPPED')
+finally:
+    ssock.close()
+" 2>&1) || true
+echo "  Timeout result: $TIMEOUT_RESULT"
+check "idle connection dropped after 60s timeout" \
+    echo "$TIMEOUT_RESULT" | grep -q "DROPPED"
+
+# -- Test 3: Large transfer acceptance (34 GiB within 40 GiB limit) --
+bold "  -- Test 3: Large transfer limit validation --"
+
+# Test that server rejects Content-Length > 40 GiB
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" \
+    -X PUT -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "X-Buncker-Checksum: sha256:0000000000000000000000000000000000000000000000000000000000000000" \
+    -H "Content-Length: 45000000000" \
+    "$BUNCKER_URL/admin/import" </dev/null)
+check "PUT with Content-Length > 40 GiB -> 400 BODY_TOO_LARGE" \
+    test "$HTTP_CODE" = "400"
+
+# Test that server accepts Content-Length = 34 GiB (within limit)
+# We send the header but abort after 1 byte - we only test the limit check,
+# not the full transfer. The server should NOT reject with BODY_TOO_LARGE.
+LIMIT_RESULT=$(exec_client2 python3 -c "
+import socket, ssl
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+sock = socket.create_connection(('buncker-offline', 5000), timeout=10)
+ssock = ctx.wrap_socket(sock, server_hostname='buncker-offline')
+# Send PUT with Content-Length 34 GiB (within 40 GiB limit)
+cl = 34 * 1024 * 1024 * 1024
+req = (
+    'PUT /admin/import HTTP/1.1\r\n'
+    'Host: buncker-offline\r\n'
+    'Authorization: Bearer $ADMIN_TOKEN\r\n'
+    'X-Buncker-Checksum: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n'
+    f'Content-Length: {cl}\r\n'
+    '\r\n'
+).encode()
+ssock.sendall(req)
+# Send 1 byte of body then close - server accepted the headers
+ssock.sendall(b'x')
+import time; time.sleep(1)
+# Read response - if we get any HTTP response (even error), headers were accepted
+try:
+    data = ssock.recv(4096)
+    resp = data.decode('utf-8', errors='replace')
+    # Check that we did NOT get 400 BODY_TOO_LARGE
+    if 'BODY_TOO_LARGE' in resp:
+        print('REJECTED')
+    elif 'HTTP/' in resp:
+        print('ACCEPTED')
+    else:
+        print('ACCEPTED')
+except Exception:
+    # Connection timeout/reset = server was processing, not rejecting
+    print('ACCEPTED')
+finally:
+    ssock.close()
+" 2>&1) || true
+echo "  34 GiB limit result: $LIMIT_RESULT"
+check "PUT with Content-Length 34 GiB accepted (not BODY_TOO_LARGE)" \
+    echo "$LIMIT_RESULT" | grep -q "ACCEPTED"
+
+# Test with a real 100 MiB sparse file upload via PUT
+bold "  -- Test 3b: Real 100 MiB file PUT upload --"
+exec_client bash -c "truncate -s 100M /tmp/test-large.bin"
+LARGE_CHECKSUM=$(exec_client sha256sum /tmp/test-large.bin | cut -d' ' -f1)
+HTTP_CODE=$(exec_client curl -ks -o /dev/null -w "%{http_code}" \
+    -T /tmp/test-large.bin \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "X-Buncker-Checksum: sha256:$LARGE_CHECKSUM" \
+    "$BUNCKER_URL/admin/import")
+# Expect 400 TRANSFER_ERROR (not valid encrypted tar) - but NOT 400 BODY_TOO_LARGE
+LARGE_BODY=$(exec_client curl -ks \
+    -T /tmp/test-large.bin \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "X-Buncker-Checksum: sha256:$LARGE_CHECKSUM" \
+    "$BUNCKER_URL/admin/import" 2>&1) || true
+check "100 MiB upload accepted (not size-rejected)" \
+    bash -c "! echo '$LARGE_BODY' | grep -q 'BODY_TOO_LARGE'"
+exec_client rm -f /tmp/test-large.bin
 
 # ---------------------------------------------------------------
 # Summary

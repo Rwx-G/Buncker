@@ -1,9 +1,10 @@
 # Integration test environment - Air-gapped Docker simulation
 #
 # Architecture:
-#   online  (bridge network, internet access)  -> fetches from Docker Hub
-#   buncker-offline (internal network only)     -> OCI registry on :5000
-#   client  (internal network + transfer vol)   -> docker build
+#   online          (bridge network, internet access)  -> fetches from Docker Hub
+#   buncker-offline (internal network only)            -> OCI registry on :5000
+#   client          (internal network + transfer vol)  -> docker build
+#   client-offline  (internal network only)            -> 2nd LAN client for concurrency tests
 #
 # Usage:
 #   make build-deb
@@ -48,6 +49,19 @@ services:
       - "2203:22"
     volumes:
       - transfer:/transfer
+    networks:
+      - offline-net
+      - mgmt
+
+  client-offline:
+    build:
+      context: ../../
+      dockerfile: tests/integration/client-offline/Dockerfile
+    hostname: client-offline
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "2204:22"
     networks:
       - offline-net
       - mgmt
