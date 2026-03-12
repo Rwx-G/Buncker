@@ -75,9 +75,9 @@ def _get(url: str) -> tuple[int, bytes, dict]:
     req = urllib.request.Request(url)
     try:
         resp = urllib.request.urlopen(req)
-        return resp.status, resp.read(), dict(resp.headers)
+        return resp.status, resp.read(), resp.headers
     except HTTPError as e:
-        return e.code, e.read(), dict(e.headers)
+        return e.code, e.read(), e.headers
 
 
 def _post(url: str, data: dict | None = None) -> tuple[int, bytes, dict]:
@@ -91,9 +91,9 @@ def _post(url: str, data: dict | None = None) -> tuple[int, bytes, dict]:
     )
     try:
         resp = urllib.request.urlopen(req)
-        return resp.status, resp.read(), dict(resp.headers)
+        return resp.status, resp.read(), resp.headers
     except HTTPError as e:
-        return e.code, e.read(), dict(e.headers)
+        return e.code, e.read(), e.headers
 
 
 def _head(url: str) -> tuple[int, dict]:
@@ -101,9 +101,9 @@ def _head(url: str) -> tuple[int, dict]:
     req = urllib.request.Request(url, method="HEAD")
     try:
         resp = urllib.request.urlopen(req)
-        return resp.status, dict(resp.headers)
+        return resp.status, resp.headers
     except HTTPError as e:
-        return e.code, dict(e.headers)
+        return e.code, e.headers
 
 
 class TestV2Root:

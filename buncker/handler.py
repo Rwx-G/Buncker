@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import logging
 import re
 import shutil
 import time
 from datetime import UTC, datetime
-from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -35,31 +35,88 @@ _MANIFEST_ROUTE = re.compile(r"^/v2/(.+)/manifests/(.+)$")
 # disambiguated by the fixed /blobs/ segment and the strict digest suffix.
 _BLOB_ROUTE = re.compile(r"^/v2/(.+)/blobs/(sha256:[a-f0-9]{64})$")
 
+# HTTP status phrases for WSGI status line
+_STATUS_PHRASES = {
+    200: "OK",
+    400: "Bad Request",
+    401: "Unauthorized",
+    403: "Forbidden",
+    404: "Not Found",
+    409: "Conflict",
+    429: "Too Many Requests",
+    500: "Internal Server Error",
+    503: "Service Unavailable",
+    507: "Insufficient Storage",
+}
 
-class BunckerHandler(BaseHTTPRequestHandler):
-    """HTTP request handler for OCI Distribution API + Admin API endpoints."""
 
-    # Per-read socket timeout (seconds). Each read() call must complete within
-    # this window. A 40 GiB streaming upload sending at least one 64 KB chunk
-    # every 60 s will complete without issue. Idle connections that send no
-    # data for 60 s are dropped, mitigating slowloris-style resource exhaustion.
+class _WSGIHeaders:
+    """Adapter providing BaseHTTPRequestHandler.headers-compatible interface
+    over a WSGI environ dict."""
+
+    def __init__(self, environ: dict):
+        self._environ = environ
+
+    def get(self, key: str, default=None):
+        key_lower = key.lower()
+        if key_lower == "content-type":
+            return self._environ.get("CONTENT_TYPE", default)
+        if key_lower == "content-length":
+            val = self._environ.get("CONTENT_LENGTH", "")
+            return val if val else default
+        wsgi_key = "HTTP_" + key.upper().replace("-", "_")
+        return self._environ.get(wsgi_key, default)
+
+
+class _ResponseWriter:
+    """File-like object that collects response body chunks."""
+
+    def __init__(self):
+        self.chunks: list[bytes] = []
+
+    def write(self, data: bytes) -> None:
+        self.chunks.append(data)
+
+
+class BunckerHandler:
+    """WSGI request handler for OCI Distribution API + Admin API endpoints.
+
+    Provides a BaseHTTPRequestHandler-compatible interface (self.path,
+    self.headers, self.command, self.rfile, self.wfile, self.send_response,
+    self.send_header, self.end_headers) backed by a WSGI environ dict.
+    """
+
     timeout = 60
 
-    def __init__(self, *args, server_ref=None, **kwargs):
+    def __init__(self, environ: dict, *, server_ref=None):
         self._server_ref = server_ref
         self._auth_level = "local"
-        super().__init__(*args, **kwargs)
 
-    def log_message(self, format, *args):
-        """Override to use structured logging instead of stderr."""
-        _log.debug("http_request", extra={"http_message": format % args})
+        # Request interface (BaseHTTPRequestHandler-compatible)
+        path_info = environ.get("PATH_INFO", "/")
+        query = environ.get("QUERY_STRING", "")
+        self.path = f"{path_info}?{query}" if query else path_info
+        self.command = environ["REQUEST_METHOD"]
+        self.client_address = (environ.get("REMOTE_ADDR", "127.0.0.1"), 0)
+        self.headers = _WSGIHeaders(environ)
+        self.rfile = environ.get("wsgi.input", io.BytesIO())
 
-    def end_headers(self):
-        """Inject security headers on every response."""
+        # Response buffering
+        self._status_code = 200
+        self._response_headers: list[tuple[str, str]] = []
+        self.wfile = _ResponseWriter()
+
+    def send_response(self, code: int) -> None:
+        self._status_code = code
+
+    def send_header(self, key: str, value) -> None:
+        self._response_headers.append((key, str(value)))
+
+    def end_headers(self) -> None:
+        """Finalize headers with security headers injected."""
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Cache-Control", "no-store")
-        super().end_headers()
 
     def _request_meta(self, auth_level: str = "local") -> dict:
         """Extract common request metadata for structured logging."""
@@ -674,7 +731,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
             "manifest_generated",
             extra={
                 **self._request_meta(self._auth_level),
-                "filename": filename,
+                "manifest_filename": filename,
                 "size": len(encrypted),
             },
         )
@@ -1275,3 +1332,44 @@ def _split_name(name: str) -> tuple[str, str]:
         return first, parts[1]
 
     return "docker.io", name
+
+
+def create_wsgi_app(server_ref):
+    """Create a WSGI application wrapping BunckerHandler.
+
+    Args:
+        server_ref: BunckerServer instance providing store, crypto keys, etc.
+
+    Returns:
+        WSGI-compliant callable.
+    """
+
+    def app(environ, start_response):
+        handler = BunckerHandler(environ, server_ref=server_ref)
+
+        method = environ["REQUEST_METHOD"]
+        if method == "GET":
+            handler.do_GET()
+        elif method == "HEAD":
+            handler.do_HEAD()
+        elif method == "POST":
+            handler.do_POST()
+        elif method == "PUT":
+            handler.do_PUT()
+        else:
+            handler._send_not_found()
+
+        _log.debug(
+            "http_request",
+            extra={
+                "method": method,
+                "path": handler.path,
+                "status": handler._status_code,
+            },
+        )
+
+        status = f"{handler._status_code} {_STATUS_PHRASES.get(handler._status_code, 'OK')}"
+        start_response(status, handler._response_headers)
+        return handler.wfile.chunks
+
+    return app

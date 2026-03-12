@@ -829,23 +829,21 @@ class TestBodyValidation:
         return srv
 
     def test_oversized_json_body(self, tmp_path):
-        """Content-Length > 10 MiB returns 400."""
+        """Content-Length > limit returns 400."""
         srv = self._make_server(tmp_path)
         try:
             url = f"http://127.0.0.1:{srv.port}/admin/analyze"
-            # Send a request claiming to be > 10MiB
-            data = b'{"big": true}'
-            req = urllib.request.Request(
-                url,
-                data=data,
-                headers={
-                    "Content-Type": "application/json",
-                    "Content-Length": str(11 * 1024 * 1024),
-                },
-            )
-            with pytest.raises(HTTPError) as exc_info:
-                urllib.request.urlopen(req)
-            assert exc_info.value.code == 400
+            # Patch limit to 100 bytes and send more than that
+            data = b"x" * 200
+            with mock.patch("buncker.handler._MAX_JSON_BODY_SIZE", 100):
+                req = urllib.request.Request(
+                    url,
+                    data=data,
+                    headers={"Content-Type": "application/json"},
+                )
+                with pytest.raises(HTTPError) as exc_info:
+                    urllib.request.urlopen(req)
+                assert exc_info.value.code == 400
         finally:
             srv.stop()
 
