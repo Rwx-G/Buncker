@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -44,6 +45,7 @@ class AnalysisResult:
     total_missing_size: int = 0
     warnings: list[str] = field(default_factory=list)
     stale_manifests: list[dict] = field(default_factory=list)
+    analysis_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
 
 def resolve_compose(

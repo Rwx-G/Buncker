@@ -456,9 +456,18 @@ class TestAdminAnalyze:
 class TestAdminGenerateManifest:
     """Tests for POST /admin/generate-manifest."""
 
-    def test_generate_without_analysis_returns_409(self, base_url):
-        status, body, _ = _post(f"{base_url}/admin/generate-manifest", {})
+    def test_generate_without_analysis_returns_400(self, base_url):
+        status, body, _ = _post(
+            f"{base_url}/admin/generate-manifest",
+            {"analysis_id": "nonexistent"},
+        )
         assert status == 409
+
+    def test_generate_missing_analysis_id_returns_400(self, base_url):
+        status, body, _ = _post(f"{base_url}/admin/generate-manifest", {})
+        assert status == 400
+        data = json.loads(body)
+        assert data["code"] == "MISSING_FIELD"
 
     def test_analyze_then_generate(self, tmp_path, store, crypto_keys):
         srv = BunckerServer(
@@ -504,9 +513,15 @@ class TestAdminGenerateManifest:
                 {"dockerfile": str(dockerfile)},
             )
             assert status == 200
+            analyze_data = json.loads(body)
+            analysis_id = analyze_data["analysis_id"]
+            assert analysis_id  # non-empty UUID
 
-            # Generate
-            status, body, headers = _post(f"{url}/admin/generate-manifest", {})
+            # Generate with matching analysis_id
+            status, body, headers = _post(
+                f"{url}/admin/generate-manifest",
+                {"analysis_id": analysis_id},
+            )
             assert status == 200
             assert "Content-Disposition" in headers
             assert "buncker-request-" in headers["Content-Disposition"]
@@ -525,6 +540,60 @@ class TestAdminGenerateManifest:
             assert request_data["version"] == "1"
             assert request_data["source_id"] == "test-gen"
             assert len(request_data["blobs"]) > 0
+        finally:
+            srv.stop()
+
+    def test_wrong_analysis_id_returns_409(self, tmp_path, store, crypto_keys):
+        srv = BunckerServer(
+            bind="127.0.0.1",
+            port=0,
+            store=store,
+            crypto_keys=crypto_keys,
+            source_id="test-gen",
+        )
+        srv.start()
+        url = f"http://127.0.0.1:{srv.port}"
+
+        try:
+            dockerfile = tmp_path / "Dockerfile"
+            dockerfile.write_text("FROM nginx:1.25\n")
+
+            manifest = {
+                "schemaVersion": 2,
+                "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                "config": {
+                    "mediaType": "application/vnd.oci.image.config.v1+json",
+                    "digest": "sha256:" + "a" * 64,
+                    "size": 100,
+                },
+                "layers": [
+                    {
+                        "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                        "digest": "sha256:" + "b" * 64,
+                        "size": 5000,
+                    }
+                ],
+            }
+            cache = ManifestCache(store.path)
+            cache.cache_manifest(
+                "docker.io", "library/nginx", "1.25", "linux/amd64", manifest
+            )
+
+            # Analyze
+            status, body, _ = _post(
+                f"{url}/admin/analyze",
+                {"dockerfile": str(dockerfile)},
+            )
+            assert status == 200
+
+            # Generate with wrong analysis_id
+            status, body, _ = _post(
+                f"{url}/admin/generate-manifest",
+                {"analysis_id": "wrong-id"},
+            )
+            assert status == 409
+            data = json.loads(body)
+            assert data["code"] == "ANALYSIS_REPLACED"
         finally:
             srv.stop()
 

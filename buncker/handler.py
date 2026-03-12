@@ -421,6 +421,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
             self._server_ref._last_analysis = result
 
         report = {
+            "analysis_id": result.analysis_id,
             "source_path": result.source_path,
             "images": [
                 {
@@ -548,19 +549,33 @@ class BunckerHandler(BaseHTTPRequestHandler):
 
     def _handle_admin_generate_manifest(self):
         """POST /admin/generate-manifest - Generate encrypted transfer request."""
-        content_length = int(self.headers.get("Content-Length", 0))
-        refresh_stale = False
-        if content_length > 0:
-            body = self._read_json_body()
-            if body is None:
-                return
-            refresh_stale = body.get("refresh_stale", False)
+        body = self._read_json_body()
+        if body is None:
+            return
+        refresh_stale = body.get("refresh_stale", False)
+        req_analysis_id = body.get("analysis_id")
+
+        if not req_analysis_id:
+            self._send_admin_error(
+                400,
+                "MISSING_FIELD",
+                "analysis_id field required (from /admin/analyze response)",
+            )
+            return
 
         with self._server_ref._analysis_lock:
             analysis = self._server_ref._last_analysis
         if analysis is None:
             self._send_admin_error(
                 409, "NO_ANALYSIS", "no analysis pending - run /admin/analyze first"
+            )
+            return
+
+        if analysis.analysis_id != req_analysis_id:
+            self._send_admin_error(
+                409,
+                "ANALYSIS_REPLACED",
+                "analysis was replaced by another request - re-run /admin/analyze",
             )
             return
 
