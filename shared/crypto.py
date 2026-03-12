@@ -5,6 +5,7 @@ import hmac as _hmac
 import os
 import secrets
 
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -174,7 +175,7 @@ def decrypt(data: bytes, aes_key: bytes) -> bytes:
     aesgcm = AESGCM(aes_key)
     try:
         return aesgcm.decrypt(nonce, ciphertext, None)
-    except Exception as exc:
+    except (ValueError, InvalidTag) as exc:
         raise CryptoError("Decryption failed", {"reason": str(exc)}) from exc
 
 
