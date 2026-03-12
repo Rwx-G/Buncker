@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-03-12
+
+### Changed
+
+- HTTP server backend replaced with waitress (production-grade WSGI server) for plain HTTP; stdlib WSGIServer used as TLS fallback since waitress does not support SSL in its async I/O model
+- Handler converted from BaseHTTPRequestHandler to standalone WSGI-compatible class
+
+### Fixed
+
+- GC report/execute race condition: `_last_gc_report` in Store now protected by a threading lock
+- Multi-arch platform resolution in buncker-fetch now supports os/arch/variant format (e.g. `linux/arm/v7`)
+- Reserved `filename` key in log record extra dict renamed to avoid conflict with Python 3.14 stricter logging
+
+### Added
+
+- `python3-waitress` added to buncker .deb package dependencies
+
 ## [1.0.2] - 2026-03-12
 
 ### Security
@@ -320,7 +337,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub templates for issues (bug report, feature request) and pull requests
 - Conventional Commits convention and branching strategy documented
 
-[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/Rwx-G/Buncker/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/Rwx-G/Buncker/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/Rwx-G/Buncker/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/Rwx-G/Buncker/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Rwx-G/Buncker/compare/v0.9.0...v1.0.0

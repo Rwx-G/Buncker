@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/python-%3E%3D3.11-3776AB.svg?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/platform-Debian%20%7C%20RHEL%20%7C%20Fedora-A81D33.svg?logo=linux&logoColor=white" alt="Platform">
   <img src="https://img.shields.io/badge/packaging-.deb%20%7C%20.rpm-orange.svg" alt="Packaging">
-  <img src="https://img.shields.io/badge/status-v1.0.2-brightgreen.svg" alt="Status">
+  <img src="https://img.shields.io/badge/status-v1.0.3-brightgreen.svg" alt="Status">
   <img src="https://img.shields.io/badge/coverage-%E2%89%A590%25-brightgreen.svg" alt="Coverage">
 </p>
 
