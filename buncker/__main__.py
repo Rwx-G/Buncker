@@ -305,6 +305,19 @@ def _cmd_setup(args: argparse.Namespace) -> None:
     }
     save_config(config, config_path)
 
+    # Generate root-only key material for mnemonic encryption hardening
+    from shared.crypto import generate_key_material
+
+    km_path = config_path.parent / "key-material"
+    try:
+        km_path.write_bytes(generate_key_material())
+        import contextlib as _ctxlib
+
+        with _ctxlib.suppress(OSError):
+            km_path.chmod(0o600)
+    except OSError:
+        pass  # Non-fatal: encryption falls back to machine-id only
+
     # Save mnemonic to env file for systemd (encrypted at rest)
     env_path = config_path.parent / "env"
     env_path.parent.mkdir(parents=True, exist_ok=True)
