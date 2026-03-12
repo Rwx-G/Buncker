@@ -110,6 +110,11 @@ def main() -> None:
         default=False,
         help="Include stale manifests for re-download",
     )
+    sub_gen.add_argument(
+        "--analysis-id",
+        required=True,
+        help="Analysis ID from /admin/analyze response",
+    )
 
     # prepare (analyze + generate-manifest in one step)
     sub_prepare = subparsers.add_parser(
@@ -304,6 +309,19 @@ def _cmd_setup(args: argparse.Namespace) -> None:
         "log_level": "INFO",
     }
     save_config(config, config_path)
+
+    # Generate root-only key material for mnemonic encryption hardening
+    from shared.crypto import generate_key_material
+
+    km_path = config_path.parent / "key-material"
+    try:
+        km_path.write_bytes(generate_key_material())
+        import contextlib as _ctxlib
+
+        with _ctxlib.suppress(OSError):
+            km_path.chmod(0o600)
+    except OSError:
+        pass  # Non-fatal: encryption falls back to machine-id only
 
     # Save mnemonic to env file for systemd (encrypted at rest)
     env_path = config_path.parent / "env"
@@ -594,6 +612,7 @@ def _cmd_prepare(args: argparse.Namespace) -> None:
         print(f"  {_c('Error:', _RED)} {analysis.get('message', analysis)}")
         sys.exit(1)
 
+    analysis_id = analysis.get("analysis_id", "")
     images = analysis.get("images", [])
     external = [img for img in images if not img.get("is_internal")]
     missing_count = len(analysis.get("missing_blobs", []))
@@ -607,7 +626,9 @@ def _cmd_prepare(args: argparse.Namespace) -> None:
     print()
     print("Generating transfer request...")
 
-    result = _admin_post_raw(f"{base}/admin/generate-manifest", {})
+    result = _admin_post_raw(
+        f"{base}/admin/generate-manifest", {"analysis_id": analysis_id}
+    )
     if isinstance(result, dict) and "error" in result:
         print(f"  {_c('Error:', _RED)} {result.get('message', result)}")
         sys.exit(1)
@@ -891,7 +912,7 @@ def _cmd_proxy(args: argparse.Namespace) -> None:
         print(json.dumps(result, indent=2))
 
     elif args.command == "generate-manifest":
-        gen_data = {}
+        gen_data = {"analysis_id": args.analysis_id}
         if getattr(args, "refresh_stale", False):
             gen_data["refresh_stale"] = True
         result = _admin_post_raw(f"{base}/admin/generate-manifest", gen_data)

@@ -173,7 +173,12 @@ class TestGlobalFlowNoAuth:
             assert len(result["images"]) == 1
 
             # 3. Generate manifest via HTTP -> encrypted request
-            enc_request = _http_post_raw(base, "/admin/generate-manifest")
+            analysis_id = result["analysis_id"]
+            enc_request = _http_post_json(
+                base,
+                "/admin/generate-manifest",
+                {"analysis_id": analysis_id},
+            )
             assert len(enc_request) > 0
 
             # 4. Online side: decrypt request + fetch + build response
@@ -308,16 +313,13 @@ class TestGlobalFlowWithAuth:
             assert result["images"][0]["registry"] == "test.registry.io"
 
             # 2. Generate manifest with admin token
-            req = urllib.request.Request(
-                f"{base}/admin/generate-manifest",
-                data=b"",
-                headers={
-                    "Content-Type": "application/octet-stream",
-                    "Content-Length": "0",
-                    "Authorization": f"Bearer {tokens['admin']}",
-                },
+            analysis_id = result["analysis_id"]
+            enc_request = _http_post_json(
+                base,
+                "/admin/generate-manifest",
+                {"analysis_id": analysis_id},
+                token=tokens["admin"],
             )
-            enc_request = urllib.request.urlopen(req).read()
             assert len(enc_request) > 0
 
             # 3. Online side: decrypt + fetch + build response
@@ -561,16 +563,13 @@ class TestGlobalFlowOciRestricted:
             assert len(result["missing_blobs"]) == 3
 
             # -- Generate manifest + fetch + import --
-            req = urllib.request.Request(
-                f"{base}/admin/generate-manifest",
-                data=b"",
-                headers={
-                    "Content-Type": "application/octet-stream",
-                    "Content-Length": "0",
-                    "Authorization": f"Bearer {tokens['admin']}",
-                },
+            analysis_id = result["analysis_id"]
+            enc_request = _http_post_json(
+                base,
+                "/admin/generate-manifest",
+                {"analysis_id": analysis_id},
+                token=tokens["admin"],
             )
-            enc_request = urllib.request.urlopen(req).read()
 
             req_path = tmp_path / "request.json.enc"
             req_path.write_bytes(enc_request)

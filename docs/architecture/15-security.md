@@ -29,7 +29,7 @@
 - Online: registry credentials via env vars only, never plaintext in config
 
 ## Secrets Management
-- Mnemonic: communicated once via human channel, encrypted at rest in `/etc/buncker/env` using a key derived from `/etc/machine-id` (AES-256-GCM, PBKDF2 with 100,000 iterations). Protects against disk theft and unencrypted backups. Fallback to cleartext if machine-id is unavailable (development/testing)
+- Mnemonic: communicated once via human channel, encrypted at rest in `/etc/buncker/env` using a key derived from `/etc/machine-id` + `/etc/buncker/key-material` (AES-256-GCM, PBKDF2 with 600,000 iterations). The key-material file is root-only (mode 0600), generated at setup, so non-root processes cannot reconstruct the encryption key even though `/etc/machine-id` is world-readable. Protects against disk theft and local non-root process access. Falls back to machine-id only for pre-1.0.2 installations or when key-material is unavailable (development/testing)
 - Derived keys: in-memory only during execution, never written to disk
 - Config stores only verification hashes and salts
 - API tokens: separate from mnemonic, stored in restricted file (0600), not derived from mnemonic

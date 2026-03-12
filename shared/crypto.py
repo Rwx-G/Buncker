@@ -16,6 +16,7 @@ from shared.wordlist import WORDLIST
 __all__ = [
     "CryptoError",
     "generate_mnemonic",
+    "generate_key_material",
     "split_mnemonic",
     "derive_keys",
     "encrypt",
@@ -209,17 +210,36 @@ def verify(data: bytes, hmac_key: bytes, signature: str) -> bool:
 
 _ENV_KEY_SALT = b"buncker-env-v1"
 _ENV_KEY_ITERATIONS = 600_000
+_DEFAULT_KEY_MATERIAL_PATH = "/etc/buncker/key-material"
 
 
-def _derive_env_key(machine_id_path: str = "/etc/machine-id") -> bytes:
-    """Derive a 32-byte AES key from the machine identity.
+def generate_key_material() -> bytes:
+    """Generate 32 bytes of random key material for env key hardening.
 
-    Uses PBKDF2 with a static salt to derive a key that is unique to
-    this machine. Protects the mnemonic at rest against disk theft and
-    unencrypted backups.
+    Returns:
+        32 random bytes suitable for writing to the key-material file.
+    """
+    return secrets.token_bytes(32)
+
+
+def _derive_env_key(
+    machine_id_path: str = "/etc/machine-id",
+    key_material_path: str | None = _DEFAULT_KEY_MATERIAL_PATH,
+) -> bytes:
+    """Derive a 32-byte AES key from machine identity and optional key material.
+
+    Combines ``/etc/machine-id`` with a root-only key-material file
+    (generated at setup) to derive the encryption key. When both sources
+    are present, a local non-root process cannot reconstruct the key
+    even though ``/etc/machine-id`` is world-readable.
+
+    If the key-material file does not exist, falls back to machine-id
+    only (development/testing without root).
 
     Args:
         machine_id_path: Path to the machine-id file.
+        key_material_path: Path to the key-material file (root-only).
+            Pass ``None`` to skip key-material entirely.
 
     Returns:
         32-byte AES key.
@@ -239,31 +259,42 @@ def _derive_env_key(machine_id_path: str = "/etc/machine-id") -> bytes:
     if not machine_id:
         raise CryptoError(f"Empty machine-id at {machine_id_path}")
 
+    # Combine with root-only key material when available
+    key_input = machine_id
+    if key_material_path is not None:
+        km_path = Path(key_material_path)
+        if km_path.exists():
+            km_data = km_path.read_bytes().strip()
+            if km_data:
+                key_input = machine_id + km_data
+
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
         salt=_ENV_KEY_SALT,
         iterations=_ENV_KEY_ITERATIONS,
     )
-    return kdf.derive(machine_id)
+    return kdf.derive(key_input)
 
 
 def encrypt_env_value(
     value: str,
     machine_id_path: str = "/etc/machine-id",
+    key_material_path: str | None = _DEFAULT_KEY_MATERIAL_PATH,
 ) -> str:
     """Encrypt a value for storage in the systemd env file.
 
     Args:
         value: Plaintext string to encrypt (e.g. mnemonic).
         machine_id_path: Path to machine-id for key derivation.
+        key_material_path: Path to root-only key-material file.
 
     Returns:
         Base64-encoded ciphertext string.
     """
     import base64
 
-    key = _derive_env_key(machine_id_path)
+    key = _derive_env_key(machine_id_path, key_material_path)
     ct = encrypt(value.encode(), key)
     return base64.b64encode(ct).decode()
 
@@ -271,12 +302,14 @@ def encrypt_env_value(
 def decrypt_env_value(
     encrypted_b64: str,
     machine_id_path: str = "/etc/machine-id",
+    key_material_path: str | None = _DEFAULT_KEY_MATERIAL_PATH,
 ) -> str:
     """Decrypt a value from the systemd env file.
 
     Args:
         encrypted_b64: Base64-encoded ciphertext.
         machine_id_path: Path to machine-id for key derivation.
+        key_material_path: Path to root-only key-material file.
 
     Returns:
         Decrypted plaintext string.
@@ -286,7 +319,7 @@ def decrypt_env_value(
     """
     import base64
 
-    key = _derive_env_key(machine_id_path)
+    key = _derive_env_key(machine_id_path, key_material_path)
     ct = base64.b64decode(encrypted_b64)
     try:
         return decrypt(ct, key).decode()

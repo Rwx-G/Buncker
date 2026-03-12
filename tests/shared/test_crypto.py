@@ -12,6 +12,7 @@ from shared.crypto import (
     derive_keys,
     encrypt,
     encrypt_env_value,
+    generate_key_material,
     generate_mnemonic,
     sign,
     split_mnemonic,
@@ -206,8 +207,12 @@ class TestEnvEncryption:
         mid = tmp_path / "machine-id"
         mid.write_text("abcdef1234567890abcdef1234567890\n")
         mnemonic = "alpha bravo charlie delta echo foxtrot"
-        encrypted = encrypt_env_value(mnemonic, machine_id_path=str(mid))
-        decrypted = decrypt_env_value(encrypted, machine_id_path=str(mid))
+        encrypted = encrypt_env_value(
+            mnemonic, machine_id_path=str(mid), key_material_path=None
+        )
+        decrypted = decrypt_env_value(
+            encrypted, machine_id_path=str(mid), key_material_path=None
+        )
         assert decrypted == mnemonic
 
     def test_different_machines_produce_different_ciphertext(
@@ -218,8 +223,12 @@ class TestEnvEncryption:
         mid2 = tmp_path / "mid2"
         mid2.write_text("bbbb2222bbbb2222bbbb2222bbbb2222\n")
         value = "secret mnemonic"
-        ct1 = encrypt_env_value(value, machine_id_path=str(mid1))
-        ct2 = encrypt_env_value(value, machine_id_path=str(mid2))
+        ct1 = encrypt_env_value(
+            value, machine_id_path=str(mid1), key_material_path=None
+        )
+        ct2 = encrypt_env_value(
+            value, machine_id_path=str(mid2), key_material_path=None
+        )
         # Different machines -> different ciphertext
         assert ct1 != ct2
 
@@ -228,24 +237,107 @@ class TestEnvEncryption:
         mid1.write_text("aaaa1111aaaa1111aaaa1111aaaa1111\n")
         mid2 = tmp_path / "mid2"
         mid2.write_text("bbbb2222bbbb2222bbbb2222bbbb2222\n")
-        ct = encrypt_env_value("secret", machine_id_path=str(mid1))
+        ct = encrypt_env_value(
+            "secret", machine_id_path=str(mid1), key_material_path=None
+        )
         with pytest.raises(CryptoError, match="Failed to decrypt"):
-            decrypt_env_value(ct, machine_id_path=str(mid2))
+            decrypt_env_value(ct, machine_id_path=str(mid2), key_material_path=None)
 
     def test_missing_machine_id_raises(self, tmp_path: Path) -> None:
         missing = str(tmp_path / "nonexistent")
         with pytest.raises(CryptoError, match="not found"):
-            encrypt_env_value("test", machine_id_path=missing)
+            encrypt_env_value("test", machine_id_path=missing, key_material_path=None)
 
     def test_output_is_base64(self, tmp_path: Path) -> None:
         import base64
 
         mid = tmp_path / "machine-id"
         mid.write_text("abcdef1234567890abcdef1234567890\n")
-        ct = encrypt_env_value("hello", machine_id_path=str(mid))
+        ct = encrypt_env_value(
+            "hello", machine_id_path=str(mid), key_material_path=None
+        )
         # Should be valid base64
         decoded = base64.b64decode(ct)
         assert len(decoded) > 0
+
+
+class TestKeyMaterial:
+    """Tests for root-only key-material hardening."""
+
+    def test_generate_key_material_returns_32_bytes(self) -> None:
+        km = generate_key_material()
+        assert len(km) == 32
+        assert isinstance(km, bytes)
+
+    def test_generate_key_material_is_random(self) -> None:
+        km1 = generate_key_material()
+        km2 = generate_key_material()
+        assert km1 != km2
+
+    def test_roundtrip_with_key_material(self, tmp_path: Path) -> None:
+        """Encrypt/decrypt with key-material file present."""
+        mid = tmp_path / "machine-id"
+        mid.write_text("abcdef1234567890abcdef1234567890\n")
+        km = tmp_path / "key-material"
+        km.write_bytes(generate_key_material())
+
+        value = "secret mnemonic phrase"
+        ct = encrypt_env_value(
+            value, machine_id_path=str(mid), key_material_path=str(km)
+        )
+        pt = decrypt_env_value(ct, machine_id_path=str(mid), key_material_path=str(km))
+        assert pt == value
+
+    def test_key_material_changes_derived_key(self, tmp_path: Path) -> None:
+        """Same machine-id with different key-material produces different ciphertext."""
+        mid = tmp_path / "machine-id"
+        mid.write_text("abcdef1234567890abcdef1234567890\n")
+
+        # Without key-material
+        encrypt_env_value("secret", machine_id_path=str(mid), key_material_path=None)
+
+        # With key-material
+        km = tmp_path / "key-material"
+        km.write_bytes(generate_key_material())
+        ct_with_km = encrypt_env_value(
+            "secret", machine_id_path=str(mid), key_material_path=str(km)
+        )
+
+        # Cannot decrypt without matching key-material
+        with pytest.raises(CryptoError, match="Failed to decrypt"):
+            decrypt_env_value(
+                ct_with_km, machine_id_path=str(mid), key_material_path=None
+            )
+
+    def test_wrong_key_material_fails(self, tmp_path: Path) -> None:
+        """Different key-material file fails decryption."""
+        mid = tmp_path / "machine-id"
+        mid.write_text("abcdef1234567890abcdef1234567890\n")
+        km1 = tmp_path / "km1"
+        km1.write_bytes(generate_key_material())
+        km2 = tmp_path / "km2"
+        km2.write_bytes(generate_key_material())
+
+        ct = encrypt_env_value(
+            "secret", machine_id_path=str(mid), key_material_path=str(km1)
+        )
+        with pytest.raises(CryptoError, match="Failed to decrypt"):
+            decrypt_env_value(ct, machine_id_path=str(mid), key_material_path=str(km2))
+
+    def test_missing_key_material_falls_back(self, tmp_path: Path) -> None:
+        """When key-material file does not exist, uses machine-id only."""
+        mid = tmp_path / "machine-id"
+        mid.write_text("abcdef1234567890abcdef1234567890\n")
+        missing_km = str(tmp_path / "nonexistent-km")
+
+        # Should not raise - falls back to machine-id only
+        ct = encrypt_env_value(
+            "secret", machine_id_path=str(mid), key_material_path=missing_km
+        )
+        pt = decrypt_env_value(
+            ct, machine_id_path=str(mid), key_material_path=missing_km
+        )
+        assert pt == "secret"
 
 
 class TestCryptoError:

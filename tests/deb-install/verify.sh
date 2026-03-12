@@ -339,7 +339,8 @@ assert total == 36701394, f'expected 36701394 bytes total, got {total}'
 
 # Generate encrypted transfer request (CLI saves to CWD)
 cd "$SETUP_DIR"
-GENMAN_OUTPUT=$(/usr/bin/buncker --config "$SETUP_CONFIG" generate-manifest 2>&1)
+NGINX_ANALYSIS_ID=$(python3 -c "import json; print(json.load(open('$ANALYZE_NGINX'))['analysis_id'])")
+GENMAN_OUTPUT=$(/usr/bin/buncker --config "$SETUP_CONFIG" generate-manifest --analysis-id "$NGINX_ANALYSIS_ID" 2>&1)
 GENMAN_RC=$?
 
 if [ $GENMAN_RC -eq 0 ]; then
@@ -514,7 +515,8 @@ print(f'  ({n} missing blobs)')
 
 # Generate transfer request for alpine
 cd "$SETUP_DIR"
-/usr/bin/buncker --config "$SETUP_CONFIG" generate-manifest > /dev/null 2>&1
+ALPINE_ANALYSIS_ID=$(python3 -c "import json; print(json.load(open('$ANALYZE_ALPINE'))['analysis_id'])")
+/usr/bin/buncker --config "$SETUP_CONFIG" generate-manifest --analysis-id "$ALPINE_ANALYSIS_ID" > /dev/null 2>&1
 GENMAN_ALPINE_RC=$?
 
 ALPINE_ENC="$SETUP_DIR/buncker-request.json.enc"

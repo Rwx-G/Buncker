@@ -18,7 +18,7 @@ from buncker.auth import AuthError, authenticate_request
 from buncker.store import Store
 from shared.exceptions import ResolverError, StoreError, TransferError
 
-_MAX_IMPORT_SIZE = 4 * 1024 * 1024 * 1024  # 4 GiB
+_MAX_IMPORT_SIZE = 40 * 1024 * 1024 * 1024  # 40 GiB
 _MAX_JSON_BODY_SIZE = 10 * 1024 * 1024  # 10 MiB
 
 _log = logging.getLogger("buncker.handler")
@@ -38,6 +38,12 @@ _BLOB_ROUTE = re.compile(r"^/v2/(.+)/blobs/(sha256:[a-f0-9]{64})$")
 
 class BunckerHandler(BaseHTTPRequestHandler):
     """HTTP request handler for OCI Distribution API + Admin API endpoints."""
+
+    # Per-read socket timeout (seconds). Each read() call must complete within
+    # this window. A 40 GiB streaming upload sending at least one 64 KB chunk
+    # every 60 s will complete without issue. Idle connections that send no
+    # data for 60 s are dropped, mitigating slowloris-style resource exhaustion.
+    timeout = 60
 
     def __init__(self, *args, server_ref=None, **kwargs):
         self._server_ref = server_ref
@@ -421,6 +427,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
             self._server_ref._last_analysis = result
 
         report = {
+            "analysis_id": result.analysis_id,
             "source_path": result.source_path,
             "images": [
                 {
@@ -483,9 +490,9 @@ class BunckerHandler(BaseHTTPRequestHandler):
                 return None, None
 
             dockerfile_path = Path(path_str).resolve()
-            if ".." in Path(path_str).parts or not dockerfile_path.is_file():
+            if not dockerfile_path.is_file():
                 self._send_admin_error(
-                    400, "INVALID_PATH", "path traversal not allowed"
+                    400, "INVALID_PATH", "file not found or not accessible"
                 )
                 return None, None
         else:
@@ -528,9 +535,9 @@ class BunckerHandler(BaseHTTPRequestHandler):
                 return None
 
             compose_path = Path(path_str).resolve()
-            if ".." in Path(path_str).parts or not compose_path.is_file():
+            if not compose_path.is_file():
                 self._send_admin_error(
-                    400, "INVALID_PATH", "path traversal not allowed"
+                    400, "INVALID_PATH", "file not found or not accessible"
                 )
                 return None
 
@@ -548,19 +555,33 @@ class BunckerHandler(BaseHTTPRequestHandler):
 
     def _handle_admin_generate_manifest(self):
         """POST /admin/generate-manifest - Generate encrypted transfer request."""
-        content_length = int(self.headers.get("Content-Length", 0))
-        refresh_stale = False
-        if content_length > 0:
-            body = self._read_json_body()
-            if body is None:
-                return
-            refresh_stale = body.get("refresh_stale", False)
+        body = self._read_json_body()
+        if body is None:
+            return
+        refresh_stale = body.get("refresh_stale", False)
+        req_analysis_id = body.get("analysis_id")
+
+        if not req_analysis_id:
+            self._send_admin_error(
+                400,
+                "MISSING_FIELD",
+                "analysis_id field required (from /admin/analyze response)",
+            )
+            return
 
         with self._server_ref._analysis_lock:
             analysis = self._server_ref._last_analysis
         if analysis is None:
             self._send_admin_error(
                 409, "NO_ANALYSIS", "no analysis pending - run /admin/analyze first"
+            )
+            return
+
+        if analysis.analysis_id != req_analysis_id:
+            self._send_admin_error(
+                409,
+                "ANALYSIS_REPLACED",
+                "analysis was replaced by another request - re-run /admin/analyze",
             )
             return
 
@@ -676,7 +697,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
 
         if content_length > _MAX_IMPORT_SIZE:
             self._send_admin_error(
-                400, "BODY_TOO_LARGE", "request body exceeds 4 GiB limit"
+                400, "BODY_TOO_LARGE", "request body exceeds 40 GiB limit"
             )
             return
 
@@ -764,7 +785,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
         if content_length > _MAX_IMPORT_SIZE:
             self._drain_body()
             self._send_admin_error(
-                400, "BODY_TOO_LARGE", "request body exceeds 4 GiB limit"
+                400, "BODY_TOO_LARGE", "request body exceeds 40 GiB limit"
             )
             return
 
