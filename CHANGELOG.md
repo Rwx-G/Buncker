@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2]
+
+### Security
+
+- Mnemonic encryption now combines `/etc/machine-id` with a root-only `/etc/buncker/key-material` file (mode 0600), preventing non-root processes from reconstructing the AES key
+- HTTP handler socket timeout set to 60 seconds per read, mitigating slowloris-style thread exhaustion on the bounded 16-worker pool
+
+### Added
+
+- `analysis_id` (UUID) returned by `/admin/analyze` and required by `/admin/generate-manifest` to detect concurrent analysis overwrites (409 ANALYSIS_REPLACED)
+- `--analysis-id` required argument on `buncker generate-manifest` CLI command
+- `generate_key_material()` function in `shared.crypto` for root-only key file generation
+
+### Changed
+
+- Import size limit raised from 4 GiB to 40 GiB to accommodate large ML image bundles via USB or LAN
+- Path validation in `/admin/analyze` simplified: redundant `..` check removed, `Path.resolve()` + `is_file()` is sufficient
+
 ## [1.0.1] - 2026-03-10
 
 ### Fixed
