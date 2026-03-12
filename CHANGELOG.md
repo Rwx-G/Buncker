@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `analysis_id` (UUID) returned by `/admin/analyze` and required by `/admin/generate-manifest` to detect concurrent analysis overwrites (409 ANALYSIS_REPLACED)
 - `--analysis-id` required argument on `buncker generate-manifest` CLI command
 - `generate_key_material()` function in `shared.crypto` for root-only key file generation
+- Integration test Phase 4: 4th Docker container (`client-offline`) for concurrent analysis race detection, socket timeout (slowloris), and large transfer limit validation
+- Integration test Phase 5: real `docker pull` from buncker registry, daemon crash recovery (kill -9 + restart + blob persistence), and garbage collection lifecycle (report/impact/execute with post-GC pull failure)
 
 ### Changed
 

@@ -619,6 +619,135 @@ check "100 MiB upload accepted (not size-rejected)" \
 exec_client rm -f /tmp/test-large.bin
 
 # ---------------------------------------------------------------
+# Phase 5: Docker Pull, GC & Crash Recovery
+# ---------------------------------------------------------------
+
+bold ""
+bold "=== Phase 5: Docker Pull, GC & Crash Recovery ==="
+
+# Restart daemon without --restrict-oci (OCI endpoints open for Docker pull)
+bold "  -- Step 1: Restart daemon (OCI open, auth enabled) --"
+exec_offline bash -c "kill \$(pgrep -f 'buncker serve') 2>/dev/null" || true
+sleep 1
+
+exec_offline bash -c "nohup bash -c 'BUNCKER_MNEMONIC=\"$MNEMONIC\" buncker serve' > /tmp/buncker-phase5.log 2>&1 &"
+sleep 3
+
+check "daemon restarted (HTTPS, OCI open)" \
+    exec_offline curl -ksf https://127.0.0.1:5000/v2/
+
+# -- Step 2: Docker pull from client --
+bold "  -- Step 2: Docker pull alpine:3.19 from buncker registry --"
+
+# Verify Docker daemon is running on client
+check "Docker daemon running on client" \
+    exec_client docker info
+
+# Pull the image - Docker uses insecure-registries config for buncker-offline:5000
+PULL_OUTPUT=$(exec_client docker pull buncker-offline:5000/docker.io/library/alpine:3.19 2>&1) || true
+echo "  Pull: $PULL_OUTPUT"
+check "docker pull alpine:3.19 succeeded" \
+    exec_client docker image inspect buncker-offline:5000/docker.io/library/alpine:3.19
+
+# Verify the image is usable (run a simple command)
+RUN_OUTPUT=$(exec_client docker run --rm buncker-offline:5000/docker.io/library/alpine:3.19 echo "hello-buncker" 2>&1) || true
+echo "  Run: $RUN_OUTPUT"
+check "docker run with pulled image works" \
+    echo "$RUN_OUTPUT" | grep -q "hello-buncker"
+
+# -- Step 3: Crash recovery --
+bold "  -- Step 3: Daemon crash recovery (kill -9) --"
+
+# Record blob count before crash
+BLOB_COUNT_BEFORE=$(exec_offline curl -ksf \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    https://127.0.0.1:5000/admin/status \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['blob_count'])")
+echo "  Blob count before crash: $BLOB_COUNT_BEFORE"
+
+# Kill -9 (simulate crash - no graceful shutdown)
+exec_offline bash -c "kill -9 \$(pgrep -f 'buncker serve') 2>/dev/null" || true
+sleep 1
+
+# Verify daemon is down
+check "daemon is down after kill -9" \
+    bash -c "! $COMPOSE exec -T buncker-offline curl -ksf https://127.0.0.1:5000/v2/ 2>/dev/null"
+
+# Restart daemon
+exec_offline bash -c "nohup bash -c 'BUNCKER_MNEMONIC=\"$MNEMONIC\" buncker serve' > /tmp/buncker-recovery.log 2>&1 &"
+sleep 3
+
+check "daemon restarted after crash" \
+    exec_offline curl -ksf https://127.0.0.1:5000/v2/
+
+# Verify blob count unchanged
+BLOB_COUNT_AFTER=$(exec_offline curl -ksf \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    https://127.0.0.1:5000/admin/status \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['blob_count'])")
+echo "  Blob count after recovery: $BLOB_COUNT_AFTER"
+
+check "blob count unchanged after crash recovery" \
+    test "$BLOB_COUNT_BEFORE" = "$BLOB_COUNT_AFTER"
+
+# Docker pull still works after crash recovery
+exec_client docker rmi buncker-offline:5000/docker.io/library/alpine:3.19 2>/dev/null || true
+PULL_OUTPUT2=$(exec_client docker pull buncker-offline:5000/docker.io/library/alpine:3.19 2>&1) || true
+echo "  Pull after recovery: $PULL_OUTPUT2"
+check "docker pull works after crash recovery" \
+    exec_client docker image inspect buncker-offline:5000/docker.io/library/alpine:3.19
+
+# -- Step 4: Garbage collection --
+bold "  -- Step 4: Garbage collection --"
+
+# Get GC report (inactive_days=0 to catch all blobs)
+GC_REPORT=$(exec_offline curl -ksf \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    "https://127.0.0.1:5000/admin/gc/report?inactive_days=0")
+echo "  GC report: $GC_REPORT"
+GC_COUNT=$(echo "$GC_REPORT" | python3 -c "import sys,json; print(json.load(sys.stdin)['count'])")
+check "GC report found candidates" \
+    test "$GC_COUNT" -gt 0
+
+# Extract first digest for targeted GC
+GC_DIGEST=$(echo "$GC_REPORT" | python3 -c "import sys,json; print(json.load(sys.stdin)['candidates'][0]['digest'])")
+echo "  Target digest for GC: $GC_DIGEST"
+
+# GC impact analysis
+GC_IMPACT=$(exec_offline curl -ksf \
+    -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"digests\":[\"$GC_DIGEST\"]}" \
+    "https://127.0.0.1:5000/admin/gc/impact")
+echo "  GC impact: $GC_IMPACT"
+check_output "GC impact shows affected images" "affected_images" echo "$GC_IMPACT"
+
+# Execute GC on one blob
+GC_EXEC=$(exec_offline curl -ksf \
+    -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"digests\":[\"$GC_DIGEST\"],\"operator\":\"integration-test\"}" \
+    "https://127.0.0.1:5000/admin/gc/execute")
+echo "  GC execute: $GC_EXEC"
+check_output "GC executed successfully" "bytes_freed" echo "$GC_EXEC"
+
+# Verify blob count decreased
+BLOB_COUNT_GC=$(exec_offline curl -ksf \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    https://127.0.0.1:5000/admin/status \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['blob_count'])")
+echo "  Blob count after GC: $BLOB_COUNT_GC"
+check "blob count decreased after GC" \
+    test "$BLOB_COUNT_GC" -lt "$BLOB_COUNT_BEFORE"
+
+# Docker pull now fails (missing blob)
+# Purge all local Docker images and layer cache to prevent false positive
+exec_client docker rmi buncker-offline:5000/docker.io/library/alpine:3.19 2>/dev/null || true
+exec_client docker system prune -af 2>/dev/null || true
+check "docker pull fails after GC (missing blob)" \
+    bash -c "! $COMPOSE exec -T client docker pull buncker-offline:5000/docker.io/library/alpine:3.19 2>/dev/null"
+
+# ---------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------
 
