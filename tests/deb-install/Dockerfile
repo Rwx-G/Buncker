@@ -6,6 +6,7 @@ RUN apt-get update && \
         python3 \
         python3-cryptography \
         python3-yaml \
+        python3-waitress \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
