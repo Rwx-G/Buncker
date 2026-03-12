@@ -444,11 +444,20 @@ def _fetch_manifests(
                 for entry in raw_manifest.get("manifests", []):
                     p = entry.get("platform", {})
                     annotations = entry.get("annotations", {})
-                    if annotations.get("vnd.docker.reference.type") == "attestation-manifest":
+                    ref_type = annotations.get(
+                        "vnd.docker.reference.type",
+                    )
+                    if ref_type == "attestation-manifest":
                         continue
-                    if p.get("os") != target.os or p.get("architecture") != target.architecture:
+                    os_match = p.get("os") == target.os
+                    arch_match = p.get("architecture") == target.architecture
+                    if not (os_match and arch_match):
                         continue
-                    if target.variant is not None and p.get("variant") != target.variant:
+                    variant_mismatch = (
+                        target.variant is not None
+                        and p.get("variant") != target.variant
+                    )
+                    if variant_mismatch:
                         continue
                     digest = entry["digest"]
                     platform_manifest = client.fetch_manifest(repository, digest)

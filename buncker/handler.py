@@ -1368,7 +1368,8 @@ def create_wsgi_app(server_ref):
             },
         )
 
-        status = f"{handler._status_code} {_STATUS_PHRASES.get(handler._status_code, 'OK')}"
+        phrase = _STATUS_PHRASES.get(handler._status_code, "OK")
+        status = f"{handler._status_code} {phrase}"
         start_response(status, handler._response_headers)
         return handler.wfile.chunks
 

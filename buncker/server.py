@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import collections
+import contextlib
 import logging
 import ssl
 import threading
@@ -184,10 +185,8 @@ class BunckerServer:
         blocked in select() raises OSError (WinError 10038).  This is
         harmless during intentional shutdown.
         """
-        try:
+        with contextlib.suppress(OSError):
             self._server.run()
-        except OSError:
-            pass
 
     def _start_tls(self, app) -> None:
         """Start with stdlib WSGI server + TLS (fallback for SSL)."""
