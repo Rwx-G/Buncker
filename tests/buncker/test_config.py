@@ -120,6 +120,60 @@ class TestValidateConfig:
         with pytest.raises(ConfigError, match="Invalid log_level"):
             validate_config(config)
 
+    def test_invalid_gc_threshold_zero(self):
+        config = {
+            "port": 5000,
+            "max_workers": 1,
+            "store_path": "/tmp",
+            "log_level": "INFO",
+            "gc": {"inactive_days_threshold": 0},
+        }
+        with pytest.raises(ConfigError, match="inactive_days_threshold"):
+            validate_config(config)
+
+    def test_invalid_gc_threshold_negative(self):
+        config = {
+            "port": 5000,
+            "max_workers": 1,
+            "store_path": "/tmp",
+            "log_level": "INFO",
+            "gc": {"inactive_days_threshold": -5},
+        }
+        with pytest.raises(ConfigError, match="inactive_days_threshold"):
+            validate_config(config)
+
+    def test_valid_gc_threshold(self):
+        config = {
+            "port": 5000,
+            "max_workers": 1,
+            "store_path": "/tmp",
+            "log_level": "INFO",
+            "gc": {"inactive_days_threshold": 30},
+        }
+        validate_config(config)  # Should not raise
+
+    def test_invalid_transfer_path_type(self):
+        config = {
+            "port": 5000,
+            "max_workers": 1,
+            "store_path": "/tmp",
+            "log_level": "INFO",
+            "transfer_path": 123,
+        }
+        with pytest.raises(ConfigError, match="transfer_path"):
+            validate_config(config)
+
+    def test_unknown_key_warns(self, tmp_path, caplog):
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"portt": 8080}))
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="buncker.config"):
+            load_config(config_path)
+        assert any(
+            "config_unknown_key" in r.message for r in caplog.records
+        )
+
 
 class TestSaveConfig:
     """Tests for save_config()."""
