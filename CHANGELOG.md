@@ -16,8 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Chunk size increased from 64 KiB to 1 MiB for reduced Python loop overhead on large blob transfers
 - TCP_NODELAY enabled on accepted connections to reduce latency on small responses (manifests, HEAD)
 - Server TCP backlog set to 32 for predictable connection queuing under load
-- Graceful shutdown: thread pool drains in-flight requests before closing (5s join timeout)
+- Graceful shutdown: thread pool drains in-flight requests before closing (5s join timeout), `server_stopping` log with pending worker count
 - GC `gc_execute` now logs a `gc_pre_delete` audit entry with the full digest list before deleting any blob
+- Socket timeout (60s) moved to WSGI handler class (was dead code on standalone handler after WSGI refactor)
 
 ### Security
 
@@ -31,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Per-IP rate limiting (200 req/min sliding window) on OCI manifest and blob endpoints
 - Narrowed exception types: AES-GCM decryption catches `(ValueError, InvalidTag)` instead of bare `Exception`; transfer decrypt catches `CryptoError`; tar extraction matches specific error class names
 - Config validation: `gc.inactive_days_threshold` must be >= 1, `transfer_path` type-checked, unknown config keys emit a warning
+- Fix `CryptoError` double-wrap in `decrypt_env_value` (use `from None` instead of chaining same exception type)
 
 ### Fixed
 
