@@ -241,16 +241,12 @@ class TestEnvEncryption:
             "secret", machine_id_path=str(mid1), key_material_path=None
         )
         with pytest.raises(CryptoError, match="Failed to decrypt"):
-            decrypt_env_value(
-                ct, machine_id_path=str(mid2), key_material_path=None
-            )
+            decrypt_env_value(ct, machine_id_path=str(mid2), key_material_path=None)
 
     def test_missing_machine_id_raises(self, tmp_path: Path) -> None:
         missing = str(tmp_path / "nonexistent")
         with pytest.raises(CryptoError, match="not found"):
-            encrypt_env_value(
-                "test", machine_id_path=missing, key_material_path=None
-            )
+            encrypt_env_value("test", machine_id_path=missing, key_material_path=None)
 
     def test_output_is_base64(self, tmp_path: Path) -> None:
         import base64
@@ -289,9 +285,7 @@ class TestKeyMaterial:
         ct = encrypt_env_value(
             value, machine_id_path=str(mid), key_material_path=str(km)
         )
-        pt = decrypt_env_value(
-            ct, machine_id_path=str(mid), key_material_path=str(km)
-        )
+        pt = decrypt_env_value(ct, machine_id_path=str(mid), key_material_path=str(km))
         assert pt == value
 
     def test_key_material_changes_derived_key(self, tmp_path: Path) -> None:
@@ -300,9 +294,7 @@ class TestKeyMaterial:
         mid.write_text("abcdef1234567890abcdef1234567890\n")
 
         # Without key-material
-        ct_no_km = encrypt_env_value(
-            "secret", machine_id_path=str(mid), key_material_path=None
-        )
+        encrypt_env_value("secret", machine_id_path=str(mid), key_material_path=None)
 
         # With key-material
         km = tmp_path / "key-material"
@@ -330,9 +322,7 @@ class TestKeyMaterial:
             "secret", machine_id_path=str(mid), key_material_path=str(km1)
         )
         with pytest.raises(CryptoError, match="Failed to decrypt"):
-            decrypt_env_value(
-                ct, machine_id_path=str(mid), key_material_path=str(km2)
-            )
+            decrypt_env_value(ct, machine_id_path=str(mid), key_material_path=str(km2))
 
     def test_missing_key_material_falls_back(self, tmp_path: Path) -> None:
         """When key-material file does not exist, uses machine-id only."""
