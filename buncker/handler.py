@@ -18,7 +18,7 @@ from buncker.auth import AuthError, authenticate_request
 from buncker.store import Store
 from shared.exceptions import ResolverError, StoreError, TransferError
 
-_MAX_IMPORT_SIZE = 4 * 1024 * 1024 * 1024  # 4 GiB
+_MAX_IMPORT_SIZE = 40 * 1024 * 1024 * 1024  # 40 GiB
 _MAX_JSON_BODY_SIZE = 10 * 1024 * 1024  # 10 MiB
 
 _log = logging.getLogger("buncker.handler")
@@ -38,6 +38,12 @@ _BLOB_ROUTE = re.compile(r"^/v2/(.+)/blobs/(sha256:[a-f0-9]{64})$")
 
 class BunckerHandler(BaseHTTPRequestHandler):
     """HTTP request handler for OCI Distribution API + Admin API endpoints."""
+
+    # Per-read socket timeout (seconds). Each read() call must complete within
+    # this window. A 40 GiB streaming upload sending at least one 64 KB chunk
+    # every 60 s will complete without issue. Idle connections that send no
+    # data for 60 s are dropped, mitigating slowloris-style resource exhaustion.
+    timeout = 60
 
     def __init__(self, *args, server_ref=None, **kwargs):
         self._server_ref = server_ref
@@ -691,7 +697,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
 
         if content_length > _MAX_IMPORT_SIZE:
             self._send_admin_error(
-                400, "BODY_TOO_LARGE", "request body exceeds 4 GiB limit"
+                400, "BODY_TOO_LARGE", "request body exceeds 40 GiB limit"
             )
             return
 
@@ -779,7 +785,7 @@ class BunckerHandler(BaseHTTPRequestHandler):
         if content_length > _MAX_IMPORT_SIZE:
             self._drain_body()
             self._send_admin_error(
-                400, "BODY_TOO_LARGE", "request body exceeds 4 GiB limit"
+                400, "BODY_TOO_LARGE", "request body exceeds 40 GiB limit"
             )
             return
 
