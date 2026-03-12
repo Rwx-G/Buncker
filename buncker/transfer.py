@@ -166,9 +166,7 @@ def import_response(
                     "AbsolutePathError",
                     "LinkOutsideDestinationError",
                 ):
-                    raise TransferError(
-                        f"Unsafe tar member rejected: {exc}"
-                    ) from exc
+                    raise TransferError(f"Unsafe tar member rejected: {exc}") from exc
                 raise
 
         # Check for ERRORS.json

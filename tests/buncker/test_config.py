@@ -170,9 +170,7 @@ class TestValidateConfig:
 
         with caplog.at_level(logging.WARNING, logger="buncker.config"):
             load_config(config_path)
-        assert any(
-            "config_unknown_key" in r.message for r in caplog.records
-        )
+        assert any("config_unknown_key" in r.message for r in caplog.records)
 
 
 class TestSaveConfig:

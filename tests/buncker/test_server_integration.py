@@ -926,9 +926,7 @@ class TestRateLimiter:
                 assert status == 200
 
             # Third request should be rate limited
-            status, body, headers = _get(
-                f"{url}/v2/library/test/blobs/{digest}"
-            )
+            status, body, headers = _get(f"{url}/v2/library/test/blobs/{digest}")
             assert status == 429
             data = json.loads(body)
             assert data["errors"][0]["code"] == "TOOMANYREQUESTS"
@@ -999,9 +997,7 @@ class TestRateLimiter:
         digest = f"sha256:{hashlib.sha256(blob_data).hexdigest()}"
         store.import_blob(blob_data, digest)
 
-        status, body, headers = _get(
-            f"{base_url}/v2/library/large/blobs/{digest}"
-        )
+        status, body, headers = _get(f"{base_url}/v2/library/large/blobs/{digest}")
         assert status == 200
         assert len(body) == len(blob_data)
         assert body == blob_data
@@ -1027,9 +1023,7 @@ class TestRateLimiter:
 
         try:
             # Open a raw socket and send a partial HTTP request
-            sock = _socket.create_connection(
-                ("127.0.0.1", srv.port), timeout=10
-            )
+            sock = _socket.create_connection(("127.0.0.1", srv.port), timeout=10)
             sock.sendall(b"GET /v2/ HTTP/1.1\r\nHost: localhost\r\n")
             # Do NOT send final \r\n - request stays incomplete
 
@@ -1053,9 +1047,7 @@ class TestRateLimiter:
         digest = f"sha256:{hashlib.sha256(blob_data).hexdigest()}"
         store.import_blob(blob_data, digest)
 
-        status, body, headers = _get(
-            f"{base_url}/v2/library/large5/blobs/{digest}"
-        )
+        status, body, headers = _get(f"{base_url}/v2/library/large5/blobs/{digest}")
         assert status == 200
         assert len(body) == len(blob_data)
         # Verify SHA256 of received data matches

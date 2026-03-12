@@ -167,20 +167,14 @@ class BunckerServer:
         if self._use_tls:
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-            ctx.set_ciphers(
-                "ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20"
-            )
+            ctx.set_ciphers("ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20")
             ctx.options |= ssl.OP_NO_SSLv2 | ssl.OP_NO_SSLv3
             ctx.load_cert_chain(self._tls_cert, self._tls_key)
-            self._server.socket = ctx.wrap_socket(
-                self._server.socket, server_side=True
-            )
+            self._server.socket = ctx.wrap_socket(self._server.socket, server_side=True)
 
         self._actual_port = self._server.server_address[1]
         self._start_time = time.time()
-        self._thread = threading.Thread(
-            target=self._server.serve_forever, daemon=True
-        )
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
 
         scheme = "https" if self._use_tls else "http"

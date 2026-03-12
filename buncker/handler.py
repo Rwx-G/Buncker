@@ -426,9 +426,7 @@ class BunckerHandler:
                     "actual": actual_digest,
                 },
             )
-            self._send_oci_error(
-                500, "BLOB_CORRUPT", "blob failed integrity check"
-            )
+            self._send_oci_error(500, "BLOB_CORRUPT", "blob failed integrity check")
             return
 
         self.send_response(200)
@@ -687,8 +685,7 @@ class BunckerHandler:
                 self._send_admin_error(
                     409,
                     "ANALYSIS_REPLACED",
-                    "analysis was replaced by another request"
-                    " - re-run /admin/analyze",
+                    "analysis was replaced by another request - re-run /admin/analyze",
                 )
                 return
 
