@@ -484,9 +484,9 @@ class BunckerHandler(BaseHTTPRequestHandler):
                 return None, None
 
             dockerfile_path = Path(path_str).resolve()
-            if ".." in Path(path_str).parts or not dockerfile_path.is_file():
+            if not dockerfile_path.is_file():
                 self._send_admin_error(
-                    400, "INVALID_PATH", "path traversal not allowed"
+                    400, "INVALID_PATH", "file not found or not accessible"
                 )
                 return None, None
         else:
@@ -529,9 +529,9 @@ class BunckerHandler(BaseHTTPRequestHandler):
                 return None
 
             compose_path = Path(path_str).resolve()
-            if ".." in Path(path_str).parts or not compose_path.is_file():
+            if not compose_path.is_file():
                 self._send_admin_error(
-                    400, "INVALID_PATH", "path traversal not allowed"
+                    400, "INVALID_PATH", "file not found or not accessible"
                 )
                 return None
 
